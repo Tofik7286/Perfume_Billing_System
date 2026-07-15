@@ -21,11 +21,12 @@ import {
   ShoppingCart,
   Printer,
   ArrowLeft,
-  Edit
+  Edit,
+  Download
 } from 'lucide-react';
 
 
-const Dashboard = () => {
+const Dashboard = ({ onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -39,6 +40,8 @@ const Dashboard = () => {
   const [overallDiscount, setOverallDiscount] = useState(0);
   const [selectedParty, setSelectedParty] = useState('');
   const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isCreatingPartyFromBilling, setIsCreatingPartyFromBilling] = useState(false);
+  const [activeBillItemId, setActiveBillItemId] = useState(null);
 
   // Mobile POS State
   const [isMobileAddItemOpen, setIsMobileAddItemOpen] = useState(false);
@@ -71,22 +74,23 @@ const Dashboard = () => {
     { id: 4, name: 'Aqua Fresh 50ml', sales: 72, revenue: '₹38,000' }
   ];
 
-  const lowStock = [
-    { id: 1, name: 'Aqua Fresh 50ml', left: 12, status: 'Critical' },
-    { id: 2, name: 'Sandalwood Premium', left: 18, status: 'Warning' },
-    { id: 3, name: 'Jasmine Mist', left: 24, status: 'Warning' }
-  ];
+
 
   const [productsData, setProductsData] = useState([
-    { id: 1, name: 'Royal Oud 100ml', rate: '₹1200', stock: 50 },
-    { id: 2, name: 'Aqua Fresh 50ml', rate: '₹800', stock: 12 },
-    { id: 3, name: 'Musk Premium Box', rate: '₹2500', stock: 10 }
+    { id: 1, name: 'Royal Oud 100ml', rate: '₹1200' },
+    { id: 2, name: 'Aqua Fresh 50ml', rate: '₹800' },
+    { id: 3, name: 'Musk Premium Box', rate: '₹2500' }
   ]);
 
   const [partiesData, setPartiesData] = useState([
     { id: 1, name: 'A.K. Traders', phone: '9876543210', balance: '₹45,000' },
     { id: 2, name: 'Zoya Fragrances', phone: '9876543211', balance: '₹0' },
     { id: 3, name: 'Elite Scents', phone: '9876543212', balance: '₹12,500' }
+  ]);
+
+  const [invoicesData, setInvoicesData] = useState([
+    { id: 'INV-001', partyId: 1, date: '2026-07-01', amount: 45000, received: 0, pending: 45000, status: 'Pending', items: [] },
+    { id: 'INV-002', partyId: 3, date: '2026-07-05', amount: 12500, received: 0, pending: 12500, status: 'Pending', items: [] }
   ]);
 
   const navItems = [
@@ -100,29 +104,190 @@ const Dashboard = () => {
     setModalType(type);
     setEditingItem(item);
     if (item) {
-      setFormData(item);
+      setFormData(
+        type === 'product'
+          ? item
+          : {
+            name: '',
+            phone: '',
+            alternatePhone: '',
+            email: '',
+            gstNumber: '',
+            panNumber: '',
+            addressLine1: '',
+            addressLine2: '',
+            landmark: '',
+            city: '',
+            state: '',
+            pincode: '',
+            country: 'India',
+            balance: '₹0',
+            ...item
+          }
+      );
     } else {
-      setFormData(type === 'product' ? { name: '', rate: '', stock: '' } : { name: '', phone: '', balance: '' });
+      setFormData(
+        type === 'product'
+          ? { name: '', rate: '' }
+          : {
+            name: '',
+            phone: '',
+            alternatePhone: '',
+            email: '',
+            gstNumber: '',
+            panNumber: '',
+            addressLine1: '',
+            addressLine2: '',
+            landmark: '',
+            city: '',
+            state: '',
+            pincode: '',
+            country: 'India',
+            balance: '₹0'
+          }
+      );
     }
     setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setIsCreatingPartyFromBilling(false);
+    setActiveBillItemId(null);
+  };
+
+  const handleAddNewPartyFromBilling = () => {
+    setIsCreatingPartyFromBilling(true);
+    handleOpenModal('party');
+  };
+
+  const handleAddNewProductFromBilling = (itemId) => {
+    setActiveBillItemId(itemId);
+    handleOpenModal('product');
+  };
+
+  const openReceivePaymentModal = () => {
+    const party = selectedLedgerParty || { id: 0 };
+    const pendingInvoices = invoicesData.filter(inv => inv.partyId === party.id && inv.pending > 0);
+    const initialAllocations = {};
+    pendingInvoices.forEach(inv => {
+      initialAllocations[inv.id] = 0;
+    });
+    setLedgerAllocations(initialAllocations);
+    setLedgerReceivedAmount(0);
+    setIsReceivePaymentModalOpen(true);
+  };
+
+  const handleLedgerReceivedAmountChange = (amountVal) => {
+    const amount = Number(amountVal) || 0;
+    setLedgerReceivedAmount(amount);
+
+    const party = selectedLedgerParty || { id: 0 };
+    // Sort oldest pending invoices first. Since new invoices are prepended to invoicesData,
+    // reversing the filtered array gives us chronological order (oldest first).
+    const pendingInvoices = invoicesData
+      .filter(inv => inv.partyId === party.id && inv.pending > 0)
+      .slice()
+      .reverse();
+
+    let remaining = amount;
+    const newAllocations = {};
+
+    pendingInvoices.forEach(inv => {
+      if (remaining <= 0) {
+        newAllocations[inv.id] = 0;
+      } else if (remaining >= inv.pending) {
+        newAllocations[inv.id] = inv.pending;
+        remaining -= inv.pending;
+      } else {
+        newAllocations[inv.id] = remaining;
+        remaining = 0;
+      }
+    });
+
+    setLedgerAllocations(newAllocations);
+  };
+
+  const handleSavePayment = () => {
+    const totalAllocated = Object.values(ledgerAllocations).reduce((sum, val) => sum + val, 0);
+    const updatedInvoices = invoicesData.map(inv => {
+      const allocated = ledgerAllocations[inv.id] || 0;
+      if (allocated > 0) {
+        const newReceived = inv.received + allocated;
+        const newPending = inv.amount - newReceived;
+        return {
+          ...inv,
+          received: newReceived,
+          pending: newPending,
+          status: newPending === 0 ? 'Paid' : newReceived > 0 ? 'Partial' : 'Pending'
+        };
+      }
+      return inv;
+    });
+    setInvoicesData(updatedInvoices);
+
+    if (selectedLedgerParty) {
+      setPartiesData(partiesData.map(p => {
+        if (p.id === selectedLedgerParty.id) {
+          const currentBal = Number(String(p.balance).replace(/[^0-9.-]+/g, "")) || 0;
+          const newBal = Math.max(0, currentBal - totalAllocated);
+          return { ...p, balance: `₹${newBal.toLocaleString('en-IN')}` };
+        }
+        return p;
+      }));
+
+      setSelectedLedgerParty(prev => {
+        if (prev && prev.id === selectedLedgerParty.id) {
+          const currentBal = Number(String(prev.balance).replace(/[^0-9.-]+/g, "")) || 0;
+          const newBal = Math.max(0, currentBal - totalAllocated);
+          return { ...prev, balance: `₹${newBal.toLocaleString('en-IN')}` };
+        }
+        return prev;
+      });
+    }
+    setIsReceivePaymentModalOpen(false);
   };
 
   const handleSaveItem = (e) => {
     e.preventDefault();
     if (modalType === 'product') {
+      const newId = Date.now();
+      const newProductRate = Number(String(formData.rate).replace(/[^0-9.-]+/g, "")) || 0;
+      const newProduct = { ...formData, id: newId, rate: `₹${newProductRate}` };
       if (editingItem) {
         setProductsData(productsData.map(p => p.id === editingItem.id ? { ...formData, id: p.id, rate: String(formData.rate).includes('₹') ? formData.rate : `₹${formData.rate}` } : p));
       } else {
-        setProductsData([...productsData, { ...formData, id: Date.now(), rate: String(formData.rate).includes('₹') ? formData.rate : `₹${formData.rate}` }]);
+        setProductsData([...productsData, newProduct]);
+        if (activeBillItemId) {
+          if (activeBillItemId === 'mobile') {
+            setMobileNewItem(prev => ({
+              ...prev,
+              productId: String(newId),
+              rate: newProductRate
+            }));
+          } else {
+            setBillItems(prevItems => prevItems.map(item => {
+              if (item.id === activeBillItemId) {
+                return { ...item, productId: String(newId), rate: newProductRate };
+              }
+              return item;
+            }));
+          }
+        }
       }
     } else {
       if (editingItem) {
         setPartiesData(partiesData.map(p => p.id === editingItem.id ? { ...formData, id: p.id, balance: String(formData.balance || '0').includes('₹') ? formData.balance : `₹${formData.balance || '0'}` } : p));
       } else {
-        setPartiesData([...partiesData, { ...formData, id: Date.now(), balance: String(formData.balance || '0').includes('₹') ? formData.balance : `₹${formData.balance || '0'}` }]);
+        const newId = Date.now();
+        const newParty = { ...formData, id: newId, balance: String(formData.balance || '0').includes('₹') ? formData.balance : `₹${formData.balance || '0'}` };
+        setPartiesData([...partiesData, newParty]);
+        if (isCreatingPartyFromBilling) {
+          setSelectedParty(String(newId));
+        }
       }
     }
-    setIsModalOpen(false);
+    handleCloseModal();
   };
 
   const handleDeleteItem = (e, type, id) => {
@@ -143,12 +308,46 @@ const Dashboard = () => {
 
   // Payment Flow
   const handleSaveAndPay = () => {
-    setReceivedAmount(grandTotal);
+    setReceivedAmount(0);
     setPaymentMode('Cash');
     setIsPaymentModalOpen(true);
   };
 
   const handleConfirmPayment = () => {
+    const newId = Date.now();
+    const newInvoice = {
+      id: `INV-${newId.toString().slice(-4)}`,
+      partyId: Number(selectedParty),
+      date: billDate,
+      amount: grandTotal,
+      received: receivedAmount,
+      pending: grandTotal - receivedAmount,
+      status: (grandTotal - receivedAmount) === 0 ? 'Paid' : receivedAmount > 0 ? 'Partial' : 'Pending',
+      items: billItems.map(item => {
+        const product = productsData.find(p => p.id === Number(item.productId));
+        return {
+          productId: item.productId,
+          name: product ? product.name : 'Unknown Item',
+          qty: item.qty,
+          rate: item.rate,
+          discount: item.discount
+        };
+      })
+    };
+
+    setInvoicesData([newInvoice, ...invoicesData]);
+
+    if (selectedParty) {
+      setPartiesData(partiesData.map(p => {
+        if (p.id === Number(selectedParty)) {
+          const currentBal = Number(String(p.balance).replace(/[^0-9.-]+/g, "")) || 0;
+          const newBal = currentBal + (grandTotal - receivedAmount);
+          return { ...p, balance: `₹${newBal.toLocaleString('en-IN')}` };
+        }
+        return p;
+      }));
+    }
+
     setIsPaymentModalOpen(false);
     setActiveTab('print');
   };
@@ -200,6 +399,31 @@ const Dashboard = () => {
     setIsMobileAddItemOpen(false);
   };
 
+  const downloadInvoicePDF = () => {
+    if (!window.html2pdf) {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      script.onload = () => {
+        generatePDF();
+      };
+      document.body.appendChild(script);
+    } else {
+      generatePDF();
+    }
+
+    function generatePDF() {
+      const element = document.getElementById('invoice-paper');
+      const opt = {
+        margin:       0.3,
+        filename:     `Invoice-${billDate}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      };
+      window.html2pdf().from(element).set(opt).save();
+    }
+  };
+
   // -------------------------------------------------------------
   // Render: Print Invoice (Phase 4)
   // -------------------------------------------------------------
@@ -218,15 +442,15 @@ const Dashboard = () => {
             <ArrowLeft size={20} /> <span className="hidden md:inline">Back to Billing</span>
           </button>
           <button
-            onClick={() => window.print()}
+            onClick={downloadInvoicePDF}
             className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-indigo-700 shadow-sm transition-all active:scale-95"
           >
-            <Printer size={20} /> Print Invoice
+            <Download size={20} /> Download Invoice
           </button>
         </div>
 
         {/* A4 Paper Container */}
-        <div className="max-w-[800px] mx-auto bg-white shadow-2xl mt-12 print:mt-0 print:shadow-none p-8 md:p-12 text-slate-900 font-sans border border-slate-200 print:border-none">
+        <div id="invoice-paper" className="max-w-[800px] mx-auto bg-white shadow-2xl mt-12 print:mt-0 print:shadow-none p-8 md:p-12 text-slate-900 font-sans border border-slate-200 print:border-none">
 
           {/* Header */}
           <div className="flex justify-between items-start border-b-2 border-slate-900 pb-6 mb-8">
@@ -251,9 +475,27 @@ const Dashboard = () => {
           <div className="mb-8">
             <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b-2 border-slate-200 inline-block pb-1">Billed To</h3>
             {party ? (
-              <div className="text-slate-900">
+              <div className="text-slate-900 space-y-0.5">
                 <p className="font-black text-lg">{party.name}</p>
-                <p className="text-sm font-medium mt-1">Phone: {party.phone}</p>
+                <p className="text-sm font-medium">Phone: {party.phone}</p>
+                {party.alternatePhone && <p className="text-xs text-slate-500">Alt Phone: {party.alternatePhone}</p>}
+                {party.email && <p className="text-sm font-medium">Email: {party.email}</p>}
+                {party.gstNumber && <p className="text-sm font-bold text-slate-800">GSTIN: {party.gstNumber}</p>}
+                {party.panNumber && <p className="text-sm font-semibold text-slate-700">PAN: {party.panNumber}</p>}
+                {(party.addressLine1 || party.addressLine2 || party.city || party.state || party.pincode) && (
+                  <div className="text-sm text-slate-600 mt-2 border-t border-slate-100 pt-1.5 max-w-[280px]">
+                    <p className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-0.5">Address</p>
+                    {party.addressLine1 && <p>{party.addressLine1}</p>}
+                    {party.addressLine2 && <p>{party.addressLine2}</p>}
+                    {party.landmark && <p className="text-xs italic text-slate-500">Landmark: {party.landmark}</p>}
+                    {(party.city || party.state || party.pincode) && (
+                      <p>
+                        {[party.city, party.state, party.pincode].filter(Boolean).join(', ')}
+                      </p>
+                    )}
+                    {party.country && party.country !== 'India' && <p>{party.country}</p>}
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-slate-500 font-bold text-sm">Walk-in Customer</p>
@@ -321,7 +563,7 @@ const Dashboard = () => {
                 </tr>
                 <tr>
                   <td className="py-1.5 font-bold text-slate-700">Amount Paid:</td>
-                  <td className="py-1.5 text-right font-bold text-slate-900">₹ {receivedAmount.toLocaleString('en-IN')} ({paymentMode})</td>
+                  <td className="py-1.5 text-right font-bold text-slate-900">₹ {receivedAmount.toLocaleString('en-IN')}</td>
                 </tr>
                 <tr className="border-t border-slate-200">
                   <td className="py-2 font-bold text-slate-700">Balance Due:</td>
@@ -352,12 +594,11 @@ const Dashboard = () => {
   // Render: Party Ledger & Statement (Phase 5)
   // -------------------------------------------------------------
   const renderPartyLedgerContent = () => {
-    const party = selectedLedgerParty || { name: 'Icon Perfumes', phone: '9876543210' };
-    const ledgerInvoices = [
-      { id: 'INV-001', date: '01-Jul-2026', amount: 20000, received: 20000, pending: 0, status: 'Paid' },
-      { id: 'INV-002', date: '05-Jul-2026', amount: 15000, received: 10000, pending: 5000, status: 'Partial' },
-      { id: 'INV-003', date: '09-Jul-2026', amount: 15000, received: 0, pending: 15000, status: 'Pending' }
-    ];
+    const party = selectedLedgerParty || { id: 0, name: 'Icon Perfumes', phone: '9876543210', balance: '₹0' };
+    const partyInvoices = invoicesData.filter(inv => inv.partyId === party.id);
+    const totalBilled = partyInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+    const totalReceived = partyInvoices.reduce((sum, inv) => sum + inv.received, 0);
+    const totalPending = partyInvoices.reduce((sum, inv) => sum + inv.pending, 0);
 
     return (
       <div className="bg-slate-50 min-h-full w-full relative pb-24 md:pb-8 overflow-y-auto">
@@ -382,19 +623,19 @@ const Dashboard = () => {
             <div className="grid grid-cols-3 gap-3 mb-5">
               <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
                 <p className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase mb-1">Total Billed</p>
-                <p className="text-sm sm:text-lg font-black text-slate-700">₹50,000</p>
+                <p className="text-sm sm:text-lg font-black text-slate-700">₹{totalBilled.toLocaleString('en-IN')}</p>
               </div>
               <div className="bg-emerald-50 rounded-xl p-3 text-center border border-emerald-100">
                 <p className="text-[10px] sm:text-xs font-bold text-emerald-600 uppercase mb-1">Received</p>
-                <p className="text-sm sm:text-lg font-black text-emerald-700">₹30,000</p>
+                <p className="text-sm sm:text-lg font-black text-emerald-700">₹{totalReceived.toLocaleString('en-IN')}</p>
               </div>
               <div className="bg-rose-50 rounded-xl p-3 text-center border border-rose-100">
                 <p className="text-[10px] sm:text-xs font-bold text-rose-600 uppercase mb-1">Pending</p>
-                <p className="text-sm sm:text-lg font-black text-rose-700">₹20,000</p>
+                <p className="text-sm sm:text-lg font-black text-rose-700">₹{totalPending.toLocaleString('en-IN')}</p>
               </div>
             </div>
             <button
-              onClick={() => setIsReceivePaymentModalOpen(true)}
+              onClick={openReceivePaymentModal}
               className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl hover:bg-indigo-700 active:scale-95 transition-all shadow-sm"
             >
               Receive Payment
@@ -405,42 +646,50 @@ const Dashboard = () => {
           <div>
             <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 px-1">Sales Invoices & Payments</h3>
             <div className="space-y-4">
-              {ledgerInvoices.map((inv) => (
-                <div key={inv.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h4 className="font-bold text-slate-900">{inv.id}</h4>
-                      <p className="text-xs font-medium text-slate-500">{inv.date}</p>
-                    </div>
-                    <span className={`px-2.5 py-1 text-xs font-bold rounded-full ${inv.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
-                      inv.status === 'Partial' ? 'bg-amber-100 text-amber-700' :
+              {partyInvoices.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 bg-white rounded-2xl border border-dashed border-slate-300">
+                  <Receipt size={48} className="mx-auto mb-3 opacity-30 text-indigo-400" />
+                  <p className="font-medium text-slate-500">No transactions recorded yet</p>
+                </div>
+              ) : (
+                partyInvoices.map((inv) => (
+                  <div key={inv.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h4 className="font-bold text-slate-900">{inv.id}</h4>
+                        <p className="text-xs font-medium text-slate-500">{inv.date.split('-').reverse().join('-')}</p>
+                      </div>
+                      <span className={`px-2.5 py-1 text-xs font-bold rounded-full ${
+                        inv.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
+                        inv.status === 'Partial' ? 'bg-amber-100 text-amber-700' :
                         'bg-rose-100 text-rose-700'
                       }`}>
-                      {inv.status}
-                    </span>
-                  </div>
+                        {inv.status}
+                      </span>
+                    </div>
 
-                  <div className="flex justify-between items-center text-sm mb-3">
-                    <span className="text-slate-500 font-medium">Bill Amt: <span className="font-bold text-slate-700">₹{inv.amount.toLocaleString('en-IN')}</span></span>
-                    <span className="text-slate-500 font-medium">Received: <span className="font-bold text-emerald-600">₹{inv.received.toLocaleString('en-IN')}</span></span>
-                  </div>
+                    <div className="flex justify-between items-center text-sm mb-3">
+                      <span className="text-slate-500 font-medium">Bill Amt: <span className="font-bold text-slate-700">₹{inv.amount.toLocaleString('en-IN')}</span></span>
+                      <span className="text-slate-500 font-medium">Received: <span className="font-bold text-emerald-600">₹{inv.received.toLocaleString('en-IN')}</span></span>
+                    </div>
 
-                  {/* Progress Bar */}
-                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mb-3">
-                    <div
-                      className={`h-full ${inv.status === 'Paid' ? 'bg-emerald-500' : inv.status === 'Partial' ? 'bg-amber-500' : 'bg-rose-500'}`}
-                      style={{ width: `${(inv.received / inv.amount) * 100}%` }}
-                    ></div>
-                  </div>
+                    {/* Progress Bar */}
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mb-3">
+                      <div
+                        className={`h-full ${inv.status === 'Paid' ? 'bg-emerald-500' : inv.status === 'Partial' ? 'bg-amber-500' : 'bg-rose-500'}`}
+                        style={{ width: inv.amount > 0 ? `${(inv.received / inv.amount) * 100}%` : '0%' }}
+                      ></div>
+                    </div>
 
-                  <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
-                    <span className="text-sm font-bold text-slate-500">Pending Amount</span>
-                    <span className={`font-black text-lg ${inv.pending > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
-                      ₹{inv.pending.toLocaleString('en-IN')}
-                    </span>
+                    <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
+                      <span className="text-sm font-bold text-slate-500">Pending Amount</span>
+                      <span className={`font-black text-lg ${inv.pending > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                        ₹{inv.pending.toLocaleString('en-IN')}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -477,8 +726,8 @@ const Dashboard = () => {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div className="w-full">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-5 md:p-6 border-b border-slate-100 flex justify-between items-center">
             <h3 className="text-lg font-bold text-slate-800">Top Selling Perfumes</h3>
             <button className="text-indigo-600 text-sm font-medium hover:text-indigo-800 transition-colors">View All</button>
@@ -509,33 +758,6 @@ const Dashboard = () => {
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
-          <div className="p-5 md:p-6 border-b border-slate-100 flex justify-between items-center">
-            <h3 className="text-lg font-bold text-slate-800">Low Stock Alerts</h3>
-            <span className="bg-rose-100 text-rose-600 text-xs font-bold px-2 py-1 rounded-full">{lowStock.length} Alerts</span>
-          </div>
-          <div className="p-5">
-            <div className="flex flex-col gap-4">
-              {lowStock.map((item) => (
-                <div key={item.id} className="flex items-center justify-between p-4 rounded-xl border border-rose-100 bg-rose-50/50 hover:bg-rose-50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white rounded-lg shadow-sm text-rose-500">
-                      <AlertTriangle size={18} />
-                    </div>
-                    <div>
-                      <p className="font-medium text-slate-800 text-sm">{item.name}</p>
-                      <p className="text-rose-600 text-xs font-semibold mt-0.5">Only {item.left} left</p>
-                    </div>
-                  </div>
-                  <button className="text-xs font-semibold bg-white border border-rose-200 text-rose-600 px-3 py-1.5 rounded-lg hover:bg-rose-50 transition-colors">
-                    Restock
-                  </button>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </div>
@@ -589,7 +811,6 @@ const Dashboard = () => {
                   <h4 className="font-bold text-slate-800">{product.name}</h4>
                   <div className="flex items-center gap-3 mt-1 text-sm">
                     <span className="text-slate-500">Rate: <span className="font-medium text-slate-700">{product.rate}</span></span>
-                    <span className="text-slate-500">Stock: <span className={`font-medium ${product.stock < 20 ? 'text-rose-600' : 'text-emerald-600'}`}>{product.stock}</span></span>
                   </div>
                 </div>
               </div>
@@ -644,7 +865,6 @@ const Dashboard = () => {
                   <>
                     <th className="p-5 font-medium">Product Name</th>
                     <th className="p-5 font-medium">Rate</th>
-                    <th className="p-5 font-medium">Stock</th>
                     <th className="p-5 font-medium text-right">Actions</th>
                   </>
                 ) : (
@@ -669,11 +889,6 @@ const Dashboard = () => {
                     </div>
                   </td>
                   <td className="p-5 text-slate-700 font-medium">{product.rate}</td>
-                  <td className="p-5">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${product.stock < 20 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {product.stock} units
-                    </span>
-                  </td>
                   <td className="p-5 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button onClick={() => handleOpenModal('product', product)} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-lg transition-colors">
@@ -752,16 +967,34 @@ const Dashboard = () => {
         <div className="p-4 md:p-6 bg-slate-50/50 flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
           <div className="flex-1 space-y-1.5 md:space-y-2">
             <label className="text-xs md:text-sm font-semibold text-slate-700">Select Party</label>
-            <select
-              className="w-full p-3.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-800 font-medium shadow-sm"
-              value={selectedParty}
-              onChange={(e) => setSelectedParty(e.target.value)}
-            >
-              <option value="">-- Choose Party --</option>
-              {partiesData.map(party => (
-                <option key={party.id} value={party.id}>{party.name}</option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                className="flex-1 p-3.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-800 font-medium shadow-sm"
+                value={selectedParty}
+                onChange={(e) => {
+                  if (e.target.value === 'new') {
+                    handleAddNewPartyFromBilling();
+                  } else {
+                    setSelectedParty(e.target.value);
+                  }
+                }}
+              >
+                <option value="">-- Choose Party --</option>
+                {partiesData.map(party => (
+                  <option key={party.id} value={party.id}>{party.name}</option>
+                ))}
+                <option value="new" className="text-indigo-600 font-bold font-sans">+ Add New Party...</option>
+              </select>
+              <button
+                type="button"
+                onClick={handleAddNewPartyFromBilling}
+                className="px-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-100 rounded-xl flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-sm font-semibold gap-1.5 shrink-0"
+                title="Add New Party"
+              >
+                <Plus size={20} />
+                <span className="hidden md:inline text-sm">New</span>
+              </button>
+            </div>
           </div>
           <div className="flex gap-4 md:flex-row md:flex-[2]">
             <div className="flex-1 space-y-1.5 md:space-y-2">
@@ -802,16 +1035,33 @@ const Dashboard = () => {
               {billItems.map((item) => (
                 <tr key={item.id}>
                   <td className="py-4 pr-4">
-                    <select
-                      className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium shadow-sm"
-                      value={item.productId}
-                      onChange={(e) => updateBillItem(item.id, 'productId', e.target.value)}
-                    >
-                      <option value="">Select Product...</option>
-                      {productsData.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
+                    <div className="flex gap-2">
+                      <select
+                        className="flex-1 p-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium shadow-sm"
+                        value={item.productId}
+                        onChange={(e) => {
+                          if (e.target.value === 'new') {
+                            handleAddNewProductFromBilling(item.id);
+                          } else {
+                            updateBillItem(item.id, 'productId', e.target.value);
+                          }
+                        }}
+                      >
+                        <option value="">Select Product...</option>
+                        {productsData.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                        <option value="new" className="text-indigo-600 font-bold">+ Add New Product...</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleAddNewProductFromBilling(item.id)}
+                        className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center transition-all hover:scale-105 active:scale-95 border border-indigo-100 shrink-0"
+                        title="Add New Product"
+                      >
+                        <Plus size={18} />
+                      </button>
+                    </div>
                   </td>
                   <td className="py-4 pr-4">
                     <input
@@ -996,16 +1246,33 @@ const Dashboard = () => {
             <div className="space-y-5">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">Select Product</label>
-                <select
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
-                  value={mobileNewItem.productId}
-                  onChange={(e) => handleMobileProductSelect(e.target.value)}
-                >
-                  <option value="">-- Tap to choose --</option>
-                  {productsData.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <div className="flex gap-2">
+                  <select
+                    className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                    value={mobileNewItem.productId}
+                    onChange={(e) => {
+                      if (e.target.value === 'new') {
+                        handleAddNewProductFromBilling('mobile');
+                      } else {
+                        handleMobileProductSelect(e.target.value);
+                      }
+                    }}
+                  >
+                    <option value="">-- Tap to choose --</option>
+                    {productsData.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                    <option value="new" className="text-indigo-600 font-bold">+ Add New Product...</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => handleAddNewProductFromBilling('mobile')}
+                    className="p-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-100 rounded-xl flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-sm font-semibold shrink-0"
+                    title="Add New Product"
+                  >
+                    <Plus size={20} />
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1111,7 +1378,7 @@ const Dashboard = () => {
                 <Settings size={20} />
                 {isSidebarOpen && <span>Settings</span>}
               </button>
-              <button className="flex items-center gap-3 px-3 py-2 w-full text-red-600 hover:text-red-700 rounded-lg hover:bg-red-50 mt-1 transition-colors">
+              <button onClick={onLogout} className="flex items-center gap-3 px-3 py-2 w-full text-red-600 hover:text-red-700 rounded-lg hover:bg-red-50 mt-1 transition-colors">
                 <LogOut size={20} />
                 {isSidebarOpen && <span>Logout</span>}
               </button>
@@ -1192,16 +1459,16 @@ const Dashboard = () => {
             <div className="fixed inset-0 z-[60] flex items-end justify-center md:items-center">
               <div
                 className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
-                onClick={() => setIsModalOpen(false)}
+                onClick={handleCloseModal}
               ></div>
 
-              <div className="relative bg-white w-full md:w-[500px] rounded-t-3xl md:rounded-3xl shadow-2xl overflow-hidden transform transition-all flex flex-col max-h-[90vh]">
+              <div className={`relative bg-white w-full rounded-t-3xl md:rounded-3xl shadow-2xl overflow-hidden transform transition-all flex flex-col max-h-[90vh] ${modalType === 'party' && editingItem ? 'md:w-[650px]' : 'md:w-[500px]'}`}>
                 <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-white sticky top-0 z-10">
                   <h3 className="text-xl font-bold text-slate-800">
-                    Add New {modalType === 'product' ? 'Product' : 'Party'}
+                    {editingItem ? 'Edit' : 'Add New'} {modalType === 'product' ? 'Product' : 'Party'}
                   </h3>
                   <button
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={handleCloseModal}
                     className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-full transition-colors"
                   >
                     <X size={20} />
@@ -1219,77 +1486,207 @@ const Dashboard = () => {
                             placeholder="e.g. Royal Oud 100ml"
                             className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
                             value={formData.name || ''}
-                            onChange={(e) => setFormData({...formData, name: e.target.value})}
-                            required
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-sm font-semibold text-slate-700">Sale Rate (₹)</label>
-                            <input
-                              type="text"
-                              placeholder="0.00"
-                              className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
-                              value={formData.rate ? String(formData.rate).replace(/[^0-9.-]+/g, "") : ''}
-                              onChange={(e) => setFormData({...formData, rate: e.target.value})}
-                              required
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-sm font-semibold text-slate-700">Opening Stock</label>
-                            <input
-                              type="number"
-                              placeholder="0"
-                              className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
-                              value={formData.stock || ''}
-                              onChange={(e) => setFormData({...formData, stock: Number(e.target.value)})}
-                              required
-                            />
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="space-y-1.5">
-                          <label className="text-sm font-semibold text-slate-700">Party Name</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. A.K. Traders"
-                            className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
-                            value={formData.name || ''}
-                            onChange={(e) => setFormData({...formData, name: e.target.value})}
+                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                             required
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-sm font-semibold text-slate-700">Phone Number</label>
-                          <input
-                            type="tel"
-                            placeholder="e.g. 9876543210"
-                            className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
-                            value={formData.phone || ''}
-                            onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                            required
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-sm font-semibold text-slate-700">Opening Balance (₹)</label>
+                          <label className="text-sm font-semibold text-slate-700">Sale Rate (₹) <span className="text-rose-500">*</span></label>
                           <input
                             type="text"
                             placeholder="0.00"
                             className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
-                            value={formData.balance ? String(formData.balance).replace(/[^0-9.-]+/g, "") : ''}
-                            onChange={(e) => setFormData({...formData, balance: e.target.value})}
+                            value={formData.rate ? String(formData.rate).replace(/[^0-9.-]+/g, "") : ''}
+                            onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
+                            required
                           />
-                          <p className="text-xs text-slate-500">Leave positive for receivable, negative for payable.</p>
                         </div>
+                      </>
+                    ) : (
+                      <>
+                        {!editingItem ? (
+                          // Simplified Add Party Flow (Only Name and Mobile)
+                          <>
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-semibold text-slate-700">Party Name <span className="text-rose-500">*</span></label>
+                              <input
+                                type="text"
+                                placeholder="e.g. A.K. Traders"
+                                className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
+                                value={formData.name || ''}
+                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                required
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-semibold text-slate-700">Mobile Number <span className="text-rose-500">*</span></label>
+                              <input
+                                type="tel"
+                                placeholder="e.g. 9876543210"
+                                className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
+                                value={formData.phone || ''}
+                                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                required
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          // Complete Details Edit Party Flow
+                          <div className="space-y-6">
+                            {/* Basic Details Section */}
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Basic Details</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">Party Name <span className="text-rose-500">*</span></label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. A.K. Traders"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.name || ''}
+                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">Mobile Number <span className="text-rose-500">*</span></label>
+                                  <input
+                                    type="tel"
+                                    placeholder="e.g. 9876543210"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.phone || ''}
+                                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">Alternate Mobile <span className="text-slate-400 font-normal">(Optional)</span></label>
+                                  <input
+                                    type="tel"
+                                    placeholder="e.g. 9876543219"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.alternatePhone || ''}
+                                    onChange={(e) => setFormData({ ...formData, alternatePhone: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">Email Address</label>
+                                  <input
+                                    type="email"
+                                    placeholder="e.g. contact@party.com"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.email || ''}
+                                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">GST Number</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. 24AAAAC1234A1Z5"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm uppercase"
+                                    value={formData.gstNumber || ''}
+                                    onChange={(e) => setFormData({ ...formData, gstNumber: e.target.value.toUpperCase() })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">PAN Number <span className="text-slate-400 font-normal">(Optional)</span></label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. ABCDE1234F"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm uppercase"
+                                    value={formData.panNumber || ''}
+                                    onChange={(e) => setFormData({ ...formData, panNumber: e.target.value.toUpperCase() })}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Address Section */}
+                            <div className="border-t border-slate-100 pt-4">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Address Details</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-1.5 md:col-span-2">
+                                  <label className="text-xs font-bold text-slate-600">Address Line 1</label>
+                                  <input
+                                    type="text"
+                                    placeholder="Building No, Street Name"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.addressLine1 || ''}
+                                    onChange={(e) => setFormData({ ...formData, addressLine1: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5 md:col-span-2">
+                                  <label className="text-xs font-bold text-slate-600">Address Line 2</label>
+                                  <input
+                                    type="text"
+                                    placeholder="Locality, Area"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.addressLine2 || ''}
+                                    onChange={(e) => setFormData({ ...formData, addressLine2: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">Landmark <span className="text-slate-400 font-normal">(Optional)</span></label>
+                                  <input
+                                    type="text"
+                                    placeholder="Near Mall, Behind Bank"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.landmark || ''}
+                                    onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">City</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Ahmedabad"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.city || ''}
+                                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">State</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Gujarat"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.state || ''}
+                                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-bold text-slate-600">Pincode</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. 380001"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.pincode || ''}
+                                    onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5 md:col-span-2">
+                                  <label className="text-xs font-bold text-slate-600">Country</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. India"
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 text-sm"
+                                    value={formData.country || 'India'}
+                                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
 
                     <div className="pt-4 mt-6 border-t border-slate-100 flex gap-3">
                       <button
                         type="button"
-                        onClick={() => setIsModalOpen(false)}
+                        onClick={handleCloseModal}
                         className="flex-1 px-5 py-3.5 border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition-colors"
                       >
                         Cancel
@@ -1340,23 +1737,7 @@ const Dashboard = () => {
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-700">Payment Mode</label>
-                    <div className="grid grid-cols-3 gap-3">
-                      {['Cash', 'UPI', 'Bank'].map(mode => (
-                        <button
-                          key={mode}
-                          onClick={() => setPaymentMode(mode)}
-                          className={`py-3 rounded-xl font-bold text-sm transition-all border-2 ${paymentMode === mode
-                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
-                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                            }`}
-                        >
-                          {mode}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+
 
                   <div className="pt-5 border-t border-slate-100 flex justify-between items-center">
                     <span className="text-sm font-bold text-slate-500">Balance/Outstanding</span>
@@ -1389,7 +1770,9 @@ const Dashboard = () => {
                 <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-white sticky top-0 z-10 rounded-t-3xl md:rounded-3xl">
                   <div>
                     <h3 className="text-xl font-bold text-slate-800">Receive Payment</h3>
-                    <p className="text-sm font-semibold text-slate-500 mt-0.5">Icon Perfumes • <span className="text-rose-500">Pending: ₹20,000</span></p>
+                    <p className="text-sm font-semibold text-slate-500 mt-0.5">
+                      {selectedLedgerParty ? selectedLedgerParty.name : 'Unknown Party'} • <span className="text-rose-500">Pending: {selectedLedgerParty ? selectedLedgerParty.balance : '₹0'}</span>
+                    </p>
                   </div>
                   <button onClick={() => setIsReceivePaymentModalOpen(false)} className="p-2 text-slate-400 bg-slate-50 rounded-full hover:bg-slate-100 hover:text-slate-700 transition-colors">
                     <X size={20} />
@@ -1405,7 +1788,7 @@ const Dashboard = () => {
                         type="number"
                         className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-black text-2xl text-indigo-700 transition-all text-center"
                         value={ledgerReceivedAmount}
-                        onChange={(e) => setLedgerReceivedAmount(Number(e.target.value) || 0)}
+                        onChange={(e) => handleLedgerReceivedAmountChange(e.target.value)}
                         onClick={(e) => e.target.select()}
                       />
                     </div>
@@ -1442,47 +1825,35 @@ const Dashboard = () => {
                     <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">Allocate to Pending Bills</h4>
 
                     <div className="space-y-3">
-                      {/* Bill 1 */}
-                      <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between shadow-sm">
-                        <div>
-                          <p className="font-bold text-slate-800">INV-002</p>
-                          <p className="text-xs font-semibold text-slate-500 mt-0.5">Pending: <span className="text-rose-500">₹5,000</span></p>
-                        </div>
-                        <div className="w-32">
-                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Settle Amount</label>
-                          <input
-                            type="number"
-                            className="w-full p-2 bg-indigo-50 border border-indigo-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-700 text-right"
-                            value={ledgerAllocations['INV-002']}
-                            onChange={(e) => setLedgerAllocations({ ...ledgerAllocations, 'INV-002': Number(e.target.value) || 0 })}
-                            onClick={(e) => e.target.select()}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Bill 2 */}
-                      <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between shadow-sm">
-                        <div>
-                          <p className="font-bold text-slate-800">INV-003</p>
-                          <p className="text-xs font-semibold text-slate-500 mt-0.5">Pending: <span className="text-rose-500">₹15,000</span></p>
-                        </div>
-                        <div className="w-32">
-                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Settle Amount</label>
-                          <input
-                            type="number"
-                            className="w-full p-2 bg-indigo-50 border border-indigo-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-700 text-right"
-                            value={ledgerAllocations['INV-003']}
-                            onChange={(e) => setLedgerAllocations({ ...ledgerAllocations, 'INV-003': Number(e.target.value) || 0 })}
-                            onClick={(e) => e.target.select()}
-                          />
-                        </div>
-                      </div>
+                      {invoicesData.filter(inv => inv.partyId === (selectedLedgerParty ? selectedLedgerParty.id : 0) && inv.pending > 0).length === 0 ? (
+                        <p className="text-sm text-slate-500 text-center py-4">No pending bills to allocate.</p>
+                      ) : (
+                        invoicesData.filter(inv => inv.partyId === (selectedLedgerParty ? selectedLedgerParty.id : 0) && inv.pending > 0).map(inv => (
+                          <div key={inv.id} className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between shadow-sm">
+                            <div>
+                              <p className="font-bold text-slate-800">{inv.id}</p>
+                              <p className="text-xs font-semibold text-slate-500 mt-0.5">Pending: <span className="text-rose-500">₹{inv.pending.toLocaleString('en-IN')}</span></p>
+                            </div>
+                            <div className="w-32">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Settle Amount</label>
+                              <input
+                                type="number"
+                                className="w-full p-2 bg-indigo-50 border border-indigo-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-700 text-right"
+                                value={ledgerAllocations[inv.id] || 0}
+                                onChange={(e) => setLedgerAllocations({ ...ledgerAllocations, [inv.id]: Number(e.target.value) || 0 })}
+                                onClick={(e) => e.target.select()}
+                              />
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
 
                     {/* Visual Feedback */}
                     <div className="mt-4 text-center">
                       {(() => {
-                        const unallocated = ledgerReceivedAmount - (ledgerAllocations['INV-002'] + ledgerAllocations['INV-003']);
+                        const totalAllocated = Object.values(ledgerAllocations).reduce((sum, val) => sum + val, 0);
+                        const unallocated = ledgerReceivedAmount - totalAllocated;
                         return (
                           <p className={`text-sm font-bold ${unallocated === 0 ? 'text-emerald-600' : unallocated > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
                             Unallocated Amount: ₹{unallocated.toLocaleString('en-IN')}
@@ -1496,8 +1867,8 @@ const Dashboard = () => {
                 {/* Footer Sticky Button */}
                 <div className="p-4 border-t border-slate-100 bg-white rounded-b-3xl mt-auto">
                   <button
-                    disabled={ledgerReceivedAmount - (ledgerAllocations['INV-002'] + ledgerAllocations['INV-003']) !== 0}
-                    onClick={() => setIsReceivePaymentModalOpen(false)}
+                    disabled={ledgerReceivedAmount - Object.values(ledgerAllocations).reduce((sum, val) => sum + val, 0) !== 0}
+                    onClick={handleSavePayment}
                     className="w-full py-4 bg-slate-900 text-white rounded-xl font-bold text-lg shadow-sm active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
                   >
                     Save Payment
@@ -1514,4 +1885,90 @@ const Dashboard = () => {
   );
 };
 
-export default Dashboard;
+const Login = ({ onLogin }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (username === 'admin' && password === 'admin') {
+      onLogin();
+    } else {
+      setError('Incorrect username or password. Contact your administrator.');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-8 border border-slate-100">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-indigo-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg text-2xl font-bold">
+            P
+          </div>
+          <h1 className="text-3xl font-black text-slate-800 tracking-tight">Welcome Back</h1>
+          <p className="text-slate-500 font-medium mt-2">Sign in to PerfumePro Dashboard</p>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-semibold mb-6 flex items-center gap-2 border border-red-100">
+            <AlertTriangle size={18} className="shrink-0" />
+            <p className="flex-1">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleLogin} className="space-y-5">
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-slate-700">Username</label>
+            <input
+              type="text"
+              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 font-medium"
+              placeholder="Enter your username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-slate-700">Password</label>
+            <input
+              type="password"
+              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800 font-medium"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 active:scale-95 transition-all shadow-[0_4px_14px_0_rgba(79,70,229,0.39)] mt-4"
+          >
+            Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const App = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    sessionStorage.getItem('isAuthenticated') === 'true'
+  );
+
+  const handleLogin = () => {
+    sessionStorage.setItem('isAuthenticated', 'true');
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('isAuthenticated');
+    setIsAuthenticated(false);
+  };
+
+  return isAuthenticated ? <Dashboard onLogout={handleLogout} /> : <Login onLogin={handleLogin} />;
+};
+
+export default App;
