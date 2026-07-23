@@ -150,3 +150,36 @@ This feature implements comprehensive CRUD (Create, Read, Update, Delete) operat
 - [ ] Database migrations execute cleanly.
 - [ ] `/test-feature 02-product-crud` runs and passes without errors.
 - [ ] Security and quality audit passed via `/code-review-feature`.
+
+---
+
+## 🛠️ Implementation Plan & Task Breakdown
+
+### Phase 1: Database & Backend Core
+- [ ] Task 1.1: Update `Product` model in `backend/app/models.py` with explicit `Meta` options (`ordering = ['-created_at']`, indexes on `product_name` and `is_active`, `__str__`).
+- [ ] Task 1.2: Verify and update `ProductAdmin` in `backend/app/admin.py` with autocomplete, ordering, list display, and search fields.
+- [ ] Task 1.3: Generate and apply database migrations (`python manage.py makemigrations` & `python manage.py migrate`).
+
+### Phase 2: DRF API Layer & Backend Unit Tests
+- [ ] Task 2.1: Implement `ProductSerializer` in `backend/app/product_serializers.py` with validation for unique product names (case-insensitive) and non-negative price values.
+- [ ] Task 2.2: Implement `ProductViewSet` in `backend/app/product_views.py` with `IsAuthenticated` permission class, `SearchFilter`, `OrderingFilter`, automatic `created_by` assignment on create, `select_related('created_by')`, and protected delete handling for products associated with `InvoiceItem`.
+- [ ] Task 2.3: Configure product URL patterns in `backend/app/urls.py` using `DefaultRouter` mounted under `/api/v1/products/`.
+- [ ] Task 2.4: Create automated unit/integration tests in `backend/app/tests/test_products.py` covering:
+  - Happy Path (200 OK list/retrieve, 201 Created, 200 OK update, 204 No Content delete)
+  - Authentication checks (401 Unauthorized for unauthenticated endpoints)
+  - Serializer validation failures (400 Bad Request for negative price, missing fields, duplicate names)
+  - Protected delete checks (400 Bad Request when product is linked to an invoice item)
+  - Search filtering by product name
+
+### Phase 3: Frontend API & State Layer
+- [ ] Task 3.1: Create `frontend/src/api/productApi.js` using centralized `axiosClient` (`getProducts`, `getProductById`, `createProduct`, `updateProduct`, `deleteProduct`).
+- [ ] Task 3.2: Implement TanStack Query custom hooks in `frontend/src/hooks/queries/useProductQuery.js` (`useProductsQuery`, `useCreateProductMutation`, `useUpdateProductMutation`, `useDeleteProductMutation`) with automatic `['products']` query cache invalidation on successful mutations.
+
+### Phase 4: Frontend UI Integration (JSX)
+- [ ] Task 4.1: Update `frontend/src/components/Modals/ProductModal.jsx` to handle backend form submission, client-side input validation, error alert banners, and active mutation loading states.
+- [ ] Task 4.2: Update `frontend/src/pages/Masters/MastersPage.jsx` (Products tab) to replace mock state with real API data using `useProductsQuery`, adding search filtering, loading Skeletons, empty state handling, and edit/delete actions connected to query mutations.
+
+### Phase 5: Rigorous Automated Testing & Verification
+- [ ] Task 5.1: Execute `/test-feature 02-product-crud` to run all backend and frontend edge case tests.
+- [ ] Task 5.2: Verify zero failing assertions, clean execution, and fix any auto-discovered defects.
+- [ ] Task 5.3: Run `/code-review-feature 02-product-crud` to perform security and code quality audits.
