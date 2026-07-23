@@ -18,12 +18,7 @@ If changes exist, stop immediately and output:
 ```text
 Working directory is not clean. Please commit or stash your changes before proceeding.
 DO NOT CONTINUE until the working directory is clean.
-```
-
----
-
-## Step 2 — Parse Command Arguments
-
+Step 2 — Parse Command Arguments
 Extract the following parameters from user arguments:
 
 step_number: Zero-padded 2-digit format (e.g., 1 → 01, 12 → 12).
@@ -36,39 +31,23 @@ branch_name: Format feature/<feature_slug> (e.g., feature/user-auth).
 
 If arguments are missing or ambiguous, ask the user for clarification before proceeding.
 
----
-
-## Step 3 — Ensure Branch Name Availability
-
-Run `git branch` to check existing branches.
+Step 3 — Ensure Branch Name Availability
+Run git branch to check existing branches.
 
 If branch_name exists, append a numeric suffix until unique: feature/user-auth-01, feature/user-auth-02, etc.
 
----
-
-## Step 4 — Sync with Main Branch
-
+Step 4 — Sync with Main Branch
 Execute:
 
-```bash
+Bash
 git checkout main
 git pull origin main
-```
-
----
-
-## Step 5 — Create Feature Branch
-
+Step 5 — Create Feature Branch
 Execute:
 
-```bash
+Bash
 git checkout -b <branch_name>
-```
-
----
-
-## Step 6 — Context & Codebase Research
-
+Step 6 — Context & Codebase Research
 Before drafting the spec, read and inspect:
 
 .antigravity/rules.md
@@ -83,17 +62,12 @@ Existing Django models, views, and React component structures related to the fea
 
 If the feature step is already marked complete, warn the user and abort:
 
-```text
+Plaintext
 Step <step_number> (<feature_title>) is already marked complete.
-```
+Step 7 — Write the Specification Document
+Generate the spec document using this exact template. Note: Section 9 (Detailed Test Scenarios) MUST contain concrete, explicit test cases for this specific feature. Do NOT write generic placeholders.
 
----
-
-## Step 7 — Write the Specification Document
-
-Generate the spec document using this exact template:
-
-```markdown
+Markdown
 # Spec: <feature_title>
 
 ## 1. Overview
@@ -134,37 +108,42 @@ List every new backend and frontend file to be created.
 - **Backend:** Follow `.antigravity/rules/django.md` (Bearer Auth, select_related/prefetch_related, ModelAdmin registration, no print statements).
 - **Frontend:** Follow `.antigravity/rules/react.md` (JSX ONLY, path aliases `@/`, Axios client, lucide-react icons, no console.log).
 
-## 9. Definition of Done
-Specific, verifiable acceptance criteria checklist:
-- [ ] Backend API endpoints pass authentication and validation checks.
+## 9. Concrete Test Scenarios & Edge Cases (Mandatory for /test-feature)
+Specify exact assertions and payloads to be validated for this specific feature:
+
+### A. Backend API Test Cases (Django / DRF)
+- [ ] **Happy Path (200/201):** Valid payload returns expected structure, writes correctly to DB.
+- [ ] **Auth / Authorization (401/403):** Unauthenticated or wrong-role requests are blocked.
+- [ ] **Input Validation (400):** Missing mandatory fields, bad email/phone formats, invalid data types.
+- [ ] **Domain & Boundary Edge Cases:** 
+  - Duplicate unique constraints (e.g., duplicate entries/bookings/emails).
+  - Max/min field lengths and null/empty byte payloads.
+  - Invalid foreign keys or non-existent IDs (404 handling).
+
+### B. Frontend UI & State Test Cases (React)
+- [ ] **Form Validation:** Client-side error messages appear on empty/invalid inputs before API hit.
+- [ ] **API Failure Recovery:** Error toast/alert renders properly on 400/500 API responses without UI crash.
+- [ ] **Loading & State:** Buttons show loading spinners during active queries/mutations.
+
+## 10. Definition of Done
+- [ ] Backend API endpoints pass all scenarios listed in Section 9A.
+- [ ] Frontend UI passes all scenarios listed in Section 9B.
 - [ ] Database migrations execute cleanly.
-- [ ] Frontend UI renders correctly with proper loading states and error banners.
-- [ ] Test coverage verified via `/test-feature`.
+- [ ] `/test-feature <step_number>-<feature_slug>` runs and passes without errors.
 - [ ] Security and quality audit passed via `/code-review-feature`.
-```
-
----
-
-## Step 8 — Save the Specification
-
+Step 8 — Save the Specification
 Save the generated spec file to:
 
-```text
+Plaintext
 .antigravity/specs/active/<step_number>-<feature_slug>.md
-```
-
 (Create .antigravity/specs/active/ directory if it does not exist).
 
----
-
-## Step 9 — User Status Report
-
+Step 9 — User Status Report
 Output a concise summary to the user:
 
-```text
+Plaintext
 Spec created:   .antigravity/specs/active/<step_number>-<feature_slug>.md
 Branch created: <branch_name>
 
 Review the spec at `.antigravity/specs/active/<step_number>-<feature_slug>.md`
-and run `/plan-gen` to generate the implementation plan.
-```
+and run `/plan-gen <step_number>-<feature_slug>` to generate the implementation plan.
