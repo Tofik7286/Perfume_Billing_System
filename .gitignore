@@ -171,4 +171,4 @@ docker-compose.override.yml
 *.pid
 *.seed
 
-.antigravity/
+#.antigravity/
