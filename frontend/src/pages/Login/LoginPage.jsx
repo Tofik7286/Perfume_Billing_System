@@ -1,18 +1,30 @@
 import React, { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+import { useLoginMutation } from '@/hooks/queries/useAuthQuery';
 
 const LoginPage = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const loginMutation = useLoginMutation();
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (username === 'admin' && password === 'admin') {
-      onLogin();
-    } else {
-      setError('Incorrect username or password. Contact your administrator.');
-    }
+    setErrorMessage('');
+
+    loginMutation.mutate(
+      { username, password },
+      {
+        onSuccess: () => {
+          if (onLogin) onLogin();
+        },
+        onError: (err) => {
+          const detail = err.response?.data?.detail || 'Invalid username or password. Please try again.';
+          setErrorMessage(detail);
+        },
+      }
+    );
   };
 
   return (
@@ -26,10 +38,10 @@ const LoginPage = ({ onLogin }) => {
           <p className="text-slate-500 font-medium mt-2">Sign in to PerfumePro Dashboard</p>
         </div>
 
-        {error && (
+        {errorMessage && (
           <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-semibold mb-6 flex items-center gap-2 border border-red-100">
             <AlertTriangle size={18} className="shrink-0" />
-            <p className="flex-1">{error}</p>
+            <p className="flex-1">{errorMessage}</p>
           </div>
         )}
 
@@ -42,6 +54,7 @@ const LoginPage = ({ onLogin }) => {
               placeholder="Enter your username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              disabled={loginMutation.isPending}
               required
             />
           </div>
@@ -53,15 +66,24 @@ const LoginPage = ({ onLogin }) => {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              disabled={loginMutation.isPending}
               required
             />
           </div>
 
           <button
             type="submit"
-            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 active:scale-95 transition-all shadow-[0_4px_14px_0_rgba(79,70,229,0.39)] mt-4"
+            disabled={loginMutation.isPending}
+            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 active:scale-95 transition-all shadow-[0_4px_14px_0_rgba(79,70,229,0.39)] mt-4 flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            Sign In
+            {loginMutation.isPending ? (
+              <>
+                <Loader2 size={20} className="animate-spin" />
+                Signing In...
+              </>
+            ) : (
+              'Sign In'
+            )}
           </button>
         </form>
       </div>

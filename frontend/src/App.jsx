@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import useAuthStore from '@/store/useAuthStore';
 import { AppProvider, useApp } from './context/AppContext';
 import DashboardLayout from './components/Layout/DashboardLayout';
 import LoginPage from './pages/Login/LoginPage';
@@ -7,6 +9,15 @@ import MastersPage from './pages/Masters/MastersPage';
 import BillingPage from './pages/Billing/BillingPage';
 import PartyLedgerPage from './pages/PartyLedger/PartyLedgerPage';
 import PrintInvoicePage from './pages/PrintInvoice/PrintInvoicePage';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const MainContent = () => {
   const { activeTab } = useApp();
@@ -40,29 +51,26 @@ const DashboardContainer = ({ onLogout }) => {
   );
 };
 
-const App = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    sessionStorage.getItem('isAuthenticated') === 'true'
-  );
-
-  const handleLogin = () => {
-    sessionStorage.setItem('isAuthenticated', 'true');
-    setIsAuthenticated(true);
-  };
-
-  const handleLogout = () => {
-    sessionStorage.removeItem('isAuthenticated');
-    setIsAuthenticated(false);
-  };
+const AppContent = () => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const logout = useAuthStore((state) => state.logout);
 
   if (!isAuthenticated) {
-    return <LoginPage onLogin={handleLogin} />;
+    return <LoginPage />;
   }
 
   return (
     <AppProvider>
-      <DashboardContainer onLogout={handleLogout} />
+      <DashboardContainer onLogout={logout} />
     </AppProvider>
+  );
+};
+
+const App = () => {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
+    </QueryClientProvider>
   );
 };
 
