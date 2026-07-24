@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { initialProducts, initialParties, initialInvoices } from '../constants/initialData';
 import { cleanAmount, formatCurrency } from '../utils/format';
 import { useBilling } from '../hooks/useBilling';
+import { fetchParties, createParty } from '../api/partyApi';
 
 const AppContext = createContext();
 
@@ -72,36 +73,36 @@ export const AppProvider = ({ children }) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
   };
 
-  // Party CRUD
+  // Sync parties from the API on mount
+  useEffect(() => {
+    fetchParties().then((data) => {
+      setParties(data);
+    }).catch((err) => {
+      console.error("Failed to sync parties from API:", err);
+    });
+  }, []);
+
+  // Party CRUD (addParty retained for inline BillingPage compatibility)
   const addParty = (party) => {
-    const balVal = cleanAmount(party.balance);
-    const newParty = {
+    const balVal = cleanAmount(party.balance || '0');
+    const newId = Date.now();
+    const tempParty = {
       ...party,
-      id: Date.now(),
+      id: newId,
+      party_name: party.name,
+      mobile_number: party.phone,
+      current_balance: balVal,
       balance: formatCurrency(balVal),
     };
-    setParties((prev) => [...prev, newParty]);
-    return newParty;
-  };
 
-  const updateParty = (id, updatedParty) => {
-    setParties((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...updatedParty,
-              id,
-              balance: String(updatedParty.balance).includes('₹')
-                ? updatedParty.balance
-                : formatCurrency(cleanAmount(updatedParty.balance || '0')),
-            }
-          : p
-      )
-    );
-  };
+    createParty(party).then((apiParty) => {
+      setParties((prev) => prev.map((p) => p.id === newId ? apiParty : p));
+    }).catch((err) => {
+      console.error("Failed to quick-add party to API:", err);
+    });
 
-  const deleteParty = (id) => {
-    setParties((prev) => prev.filter((p) => p.id !== id));
+    setParties((prev) => [...prev, tempParty]);
+    return tempParty;
   };
 
   // Billing checkout payment confirmation
@@ -182,8 +183,6 @@ export const AppProvider = ({ children }) => {
         updateProduct,
         deleteProduct,
         addParty,
-        updateParty,
-        deleteParty,
         createInvoice,
         receivePayment,
         ...billing

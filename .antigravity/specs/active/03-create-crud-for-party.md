@@ -251,28 +251,443 @@ class Meta:
 
 ## 🛠️ Implementation Plan & Task Breakdown
 
-### Phase 1: Database & Backend Core
-- [ ] Task 1.1: Update `Party` model in `backend/app/models.py` — add `Meta` class (`ordering = ['-created_at']`, indexes on `party_name` and `mobile_number`, `verbose_name = 'Party'`, `verbose_name_plural = 'Parties'`).
-- [ ] Task 1.2: Register `PartyAdmin` in `backend/app/admin.py` with `list_display = ['party_name', 'mobile_number', 'city', 'current_balance', 'created_by', 'created_at']`, `search_fields = ['party_name', 'mobile_number', 'gst_number']`, `list_filter = ['city', 'state']`, `ordering = ['-created_at']`, `list_select_related = ['created_by']`.
-- [ ] Task 1.3: Run `python manage.py makemigrations` and `python manage.py migrate`.
+> **Execution Order:** Tasks are strictly sequential. Do NOT begin a task until the previous one is complete and verified.  
+> **Command context:** All `python manage.py` commands run from `D:\Project\Perfume_Billing_System\backend\`.  
+> **Active branch:** `feature/create-crud-for-party`
 
-### Phase 2: DRF API Layer
-- [ ] Task 2.1: Create `backend/app/party_serializers.py` — implement `PartySerializer` with field-level validators for `party_name` (unique, case-insensitive, non-empty) and `mobile_number` (non-empty). Mark `id`, `created_by`, `created_by_username`, `created_at`, `current_balance` as read-only.
-- [ ] Task 2.2: Create `backend/app/party_views.py` — implement `PartyViewSet` with `IsAuthenticated`, `SearchFilter` (`party_name`, `mobile_number`), `OrderingFilter` (`party_name`, `current_balance`, `created_at`), `select_related('created_by')`, `perform_create` with `created_by` assignment and `logger.info`, protected `destroy` with invoice check and `logger.warning`.
-- [ ] Task 2.3: Create `backend/app/party_urls.py` — register `PartyViewSet` with `DefaultRouter` at `r'parties'`.
-- [ ] Task 2.4: Update `backend/backend/urls.py` — add `path('api/v1/', include('app.party_urls'))`.
-- [ ] Task 2.5: Write backend tests covering all Section 9A scenarios in `backend/app/tests.py`.
+---
+
+### Phase 1: Database & Backend Core
+
+#### [x] Task 1.1 — Add `Meta` class to `Party` model
+- **File:** `backend/app/models.py`
+- **Action:** Inside the `Party` class (after the `__str__` method), add:
+  ```python
+  class Meta:
+      ordering = ['-created_at']
+      indexes = [
+          models.Index(fields=['party_name']),
+          models.Index(fields=['mobile_number']),
+      ]
+      verbose_name = 'Party'
+      verbose_name_plural = 'Parties'
+  ```
+- **Verify:** `Party._meta.ordering == ['-created_at']` and indexes are defined.
+- **Do NOT** touch any other model in this file.
+
+#### [x] Task 1.2 — Update `PartyAdmin` in `admin.py`
+- **File:** `backend/app/admin.py`
+- **Action:** The `PartyAdmin` already exists (lines 14–21) but is missing `list_select_related` and uses `ordering = ('party_name',)`. Update it to:
+  ```python
+  @admin.register(Party)
+  class PartyAdmin(admin.ModelAdmin):
+      list_display = ('id', 'party_name', 'mobile_number', 'city', 'current_balance', 'created_by', 'created_at')
+      list_filter = ('city', 'state', 'created_at')
+      search_fields = ('party_name', 'mobile_number', 'email_address', 'gst_number', 'pan_number')
+      ordering = ('-created_at',)
+      readonly_fields = ('created_at', 'current_balance')
+      autocomplete_fields = ('created_by',)
+      list_select_related = ('created_by',)
+  ```
+- **Verify:** Django admin page for Party loads without errors and `list_select_related` is set.
+
+#### [x] Task 1.3 — Generate and apply migration
+- **Commands:**
+  ```powershell
+  cd D:\Project\Perfume_Billing_System\backend
+  python manage.py makemigrations app --name="party_meta_indexes"
+  python manage.py migrate
+  ```
+- **Verify:** Migration file created in `backend/app/migrations/`. `python manage.py showmigrations app` shows all applied.
+
+---
+
+### Phase 2: DRF API Layer & Backend Tests
+
+#### [x] Task 2.1 — Create `party_serializers.py`
+- **File:** `backend/app/party_serializers.py` *(new)*
+- **Class:** `PartySerializer(serializers.ModelSerializer)`
+- **Key signatures:**
+  ```python
+  class PartySerializer(serializers.ModelSerializer):
+      created_by_username = serializers.ReadOnlyField(source='created_by.username', default=None)
+
+      class Meta:
+          model = Party
+          fields = [
+              'id', 'party_name', 'mobile_number', 'alternate_mobile',
+              'email_address', 'gst_number', 'pan_number',
+              'address_line_1', 'address_line_2', 'landmark',
+              'city', 'state', 'pincode', 'country',
+              'current_balance', 'created_by', 'created_by_username', 'created_at',
+          ]
+          read_only_fields = ['id', 'created_by', 'created_by_username', 'created_at', 'current_balance']
+
+      def validate_party_name(self, value): ...   # strip, reject empty, reject duplicate (case-insensitive, exclude self on update)
+      def validate_mobile_number(self, value): ... # strip, reject empty
+  ```
+- **Verify:** `PartySerializer(data={'party_name': '', 'mobile_number': '9876543210'}).is_valid()` returns `False` with `party_name` error.
+
+#### [x] Task 2.2 — Create `party_views.py`
+- **File:** `backend/app/party_views.py` *(new)*
+- **Class:** `PartyViewSet(viewsets.ModelViewSet)`
+- **Key signatures:**
+  ```python
+  import logging
+  from rest_framework import viewsets, filters, status
+  from rest_framework.permissions import IsAuthenticated
+  from rest_framework.response import Response
+  from .models import Party, Invoice
+  from .party_serializers import PartySerializer
+
+  logger = logging.getLogger(__name__)
+
+  class PartyViewSet(viewsets.ModelViewSet):
+      permission_classes = [IsAuthenticated]
+      serializer_class = PartySerializer
+      filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+      search_fields = ['party_name', 'mobile_number']
+      ordering_fields = ['party_name', 'current_balance', 'created_at']
+      ordering = ['-created_at']
+
+      def get_queryset(self): ...        # Party.objects.select_related('created_by').all()
+      def perform_create(self, serializer): ...  # save(created_by=request.user), logger.info
+      def destroy(self, request, *args, **kwargs): ... # Invoice check → HTTP 400, logger.warning
+  ```
+- **Rules:** No `print()`. Use `logger.info` on create, `logger.warning` on blocked delete.
+- **Verify:** `GET /api/v1/parties/` without token → `401`. With token → `200`.
+
+#### [x] Task 2.3 — Create `party_urls.py`
+- **File:** `backend/app/party_urls.py` *(new)*
+- **Content:**
+  ```python
+  from django.urls import path, include
+  from rest_framework.routers import DefaultRouter
+  from .party_views import PartyViewSet
+
+  router = DefaultRouter()
+  router.register(r'parties', PartyViewSet, basename='party')
+
+  urlpatterns = [
+      path('', include(router.urls)),
+  ]
+  ```
+- **Verify:** `router.urls` generates `parties/` and `parties/{pk}/` paths.
+
+#### [x] Task 2.4 — Update `backend/backend/urls.py`
+- **File:** `backend/backend/urls.py`
+- **Action:** Add one line after the existing product URL include:
+  ```python
+  path('api/v1/', include('app.party_urls')),
+  ```
+- **Result:** `urlpatterns` will have three `api/v1/` includes — auth, products, parties.
+- **Verify:** `python manage.py check` exits with no errors.
+
+#### [x] Task 2.5 — Add `PartyAPITestCase` to `backend/app/tests.py`
+- **File:** `backend/app/tests.py` *(append new class at end)*
+- **Class:** `PartyAPITestCase(APITestCase)`
+- **Test methods to implement** (covering all Section 9A scenarios):
+
+  | Method | Description | Expected |
+  |---|---|---|
+  | `setUp` | Create user, 2 parties, set `list_url`, `detail_url` | — |
+  | `test_list_parties_authenticated` | GET list with auth | `200`, count == 2 |
+  | `test_list_parties_unauthenticated` | GET list, no token | `401` |
+  | `test_create_party_success` | POST valid payload | `201`, `created_by_username` == user |
+  | `test_create_party_unauthenticated` | POST, no token | `401` |
+  | `test_create_party_empty_party_name` | POST `party_name=""` | `400`, `party_name` in errors |
+  | `test_create_party_whitespace_party_name` | POST `party_name="   "` | `400` |
+  | `test_create_party_empty_mobile_number` | POST `mobile_number=""` | `400`, `mobile_number` in errors |
+  | `test_create_party_missing_required_fields` | POST `{}` | `400`, both field errors |
+  | `test_create_party_duplicate_name_case_insensitive` | POST same name lowercase | `400` |
+  | `test_update_party_same_name_no_duplicate_error` | PUT keeping same `party_name` | `200` |
+  | `test_retrieve_party_success` | GET `{id}/` | `200`, correct `party_name` |
+  | `test_retrieve_party_not_found` | GET `/parties/99999/` | `404` |
+  | `test_update_party_success` | PUT with new city + gst | `200`, fields updated |
+  | `test_patch_party_success` | PATCH `mobile_number` only | `200` |
+  | `test_delete_party_no_invoices_success` | DELETE unreferenced | `204`, DB record gone |
+  | `test_delete_party_with_invoices_blocked` | DELETE party with Invoice | `400`, detail contains "Cannot delete" |
+  | `test_search_by_party_name` | GET `?search=Traders` | `200`, matching result only |
+  | `test_search_by_mobile_number` | GET `?search=9876543210` | `200`, matching result only |
+  | `test_create_party_name_exceeds_max_length` | POST 256-char name | `400` |
+
+- **Run command to verify:**
+  ```powershell
+  python manage.py test app.tests.PartyAPITestCase --verbosity=2
+  ```
+
+---
 
 ### Phase 3: Frontend API & State Layer
-- [ ] Task 3.1: Create `frontend/src/api/partyApi.js` — implement `fetchParties`, `fetchPartyById`, `createParty`, `updateParty`, `deleteParty` using `axiosClient`. `createParty` and `updateParty` map camelCase form fields to snake_case API payload before the request.
-- [ ] Task 3.2: Create `frontend/src/hooks/queries/usePartyQuery.js` — implement `usePartiesQuery`, `usePartyDetailQuery`, `useCreatePartyMutation`, `useUpdatePartyMutation`, `useDeletePartyMutation` with `['parties']` query key and cache invalidation on mutations.
 
-### Phase 4: Frontend UI Integration
-- [ ] Task 4.1: Update `frontend/src/components/Modals/PartyModal.jsx` — add `isLoading` and `errorMessage` props; update `useEffect` to map API snake_case response fields to camelCase `formData` on edit; show loading spinner on submit button; show error banner when `errorMessage` is truthy.
-- [ ] Task 4.2: Update `frontend/src/pages/Masters/MastersPage.jsx` — import and use `usePartiesQuery`, `useCreatePartyMutation`, `useUpdatePartyMutation`, `useDeletePartyMutation`; remove `addParty`, `updateParty`, `deleteParty` from `useApp()` destructure; add `partySearchQuery` state and search bar for parties tab; pass `isLoading` and `errorMessage` to `<PartyModal>`; implement loading and empty states for the parties table.
-- [ ] Task 4.3: Update `frontend/src/context/AppContext.jsx` — remove `parties` state (localStorage sync, initial state, CRUD functions: `addParty`, `updateParty`, `deleteParty`); remove `initialParties` import if unused; retain `selectedLedgerParty` and `setSelectedLedgerParty`.
+#### [x] Task 3.1 — Create `frontend/src/api/partyApi.js`
+- **File:** `frontend/src/api/partyApi.js` *(new)*
+- **Pattern:** Mirror `productApi.js` exactly. Add an internal `toApiPayload(formData)` mapper.
+- **Functions to export:**
+  ```js
+  const toApiPayload = (formData) => ({ ... }) // camelCase → snake_case
+
+  export const fetchParties = async (params = {}) => { ... }       // GET /api/v1/parties/
+  export const fetchPartyById = async (id) => { ... }              // GET /api/v1/parties/{id}/
+  export const createParty = async (formData) => { ... }           // POST — uses toApiPayload
+  export const updateParty = async ({ id, ...formData }) => { ... } // PUT — uses toApiPayload
+  export const deleteParty = async (id) => { ... }                 // DELETE
+  ```
+- **`toApiPayload` mapping:**
+  ```js
+  const toApiPayload = (formData) => ({
+    party_name:     formData.name,
+    mobile_number:  formData.phone,
+    alternate_mobile: formData.alternatePhone || null,
+    email_address:  formData.email || null,
+    gst_number:     formData.gstNumber || null,
+    pan_number:     formData.panNumber || null,
+    address_line_1: formData.addressLine1 || null,
+    address_line_2: formData.addressLine2 || null,
+    landmark:       formData.landmark || null,
+    city:           formData.city || null,
+    state:          formData.state || null,
+    pincode:        formData.pincode || null,
+    country:        formData.country || 'India',
+  });
+  ```
+- **Rules:** Use `axiosClient` from `@/api/axiosClient`. No inline `axios`. No `console.log`.
+- **Verify:** Function signatures match what `usePartyQuery.js` expects.
+
+#### [x] Task 3.2 — Create `frontend/src/hooks/queries/usePartyQuery.js`
+- **File:** `frontend/src/hooks/queries/usePartyQuery.js` *(new)*
+- **Pattern:** Mirror `useProductQuery.js` exactly.
+- **Hooks to export:**
+  ```js
+  export const usePartiesQuery = (params = {}) => useQuery({
+    queryKey: ['parties', params],
+    queryFn: () => fetchParties(params),
+  });
+
+  export const usePartyDetailQuery = (id) => useQuery({
+    queryKey: ['party', id],
+    queryFn: () => fetchPartyById(id),
+    enabled: Boolean(id),
+  });
+
+  export const useCreatePartyMutation = () => useMutation({
+    mutationFn: createParty,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['parties'] }),
+  });
+
+  export const useUpdatePartyMutation = () => useMutation({
+    mutationFn: updateParty,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['parties'] }),
+  });
+
+  export const useDeletePartyMutation = () => useMutation({
+    mutationFn: deleteParty,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['parties'] }),
+  });
+  ```
+- **Rules:** Import from `@tanstack/react-query`. Import API functions from `@/api/partyApi`. No TypeScript.
+
+---
+
+### Phase 4: Frontend UI Integration (JSX)
+
+#### [x] Task 4.1 — Update `frontend/src/components/Modals/PartyModal.jsx`
+- **File:** `frontend/src/components/Modals/PartyModal.jsx` *(modify)*
+- **Changes:**
+  1. **Props signature:** Add `isLoading = false` and `errorMessage = ''` to destructured props.
+  2. **`useEffect` field mapping fix:** When `editingItem` is from the API (snake_case), map correctly:
+     ```js
+     name:          editingItem.party_name      || editingItem.name          || '',
+     phone:         editingItem.mobile_number   || editingItem.phone         || '',
+     alternatePhone:editingItem.alternate_mobile|| editingItem.alternatePhone|| '',
+     email:         editingItem.email_address   || editingItem.email         || '',
+     gstNumber:     editingItem.gst_number      || editingItem.gstNumber     || '',
+     panNumber:     editingItem.pan_number      || editingItem.panNumber     || '',
+     addressLine1:  editingItem.address_line_1  || editingItem.addressLine1  || '',
+     addressLine2:  editingItem.address_line_2  || editingItem.addressLine2  || '',
+     landmark:      editingItem.landmark        || '',
+     city:          editingItem.city            || '',
+     state:         editingItem.state           || '',
+     pincode:       editingItem.pincode         || '',
+     country:       editingItem.country         || 'India',
+     ```
+  3. **Error banner:** Above the `<form>`, render when `errorMessage` is truthy:
+     ```jsx
+     {errorMessage && (
+       <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium">
+         {errorMessage}
+       </div>
+     )}
+     ```
+  4. **Submit button loading state:**
+     ```jsx
+     <button type="submit" disabled={isLoading} className="...">
+       {isLoading ? <Loader2 size={18} className="animate-spin" /> : null}
+       {editingItem ? 'Update' : 'Save'} Party
+     </button>
+     ```
+     Import `Loader2` from `lucide-react`.
+- **Do NOT** change any form field layout or existing validation logic.
+
+#### [x] Task 4.2 — Update `frontend/src/pages/Masters/MastersPage.jsx`
+- **File:** `frontend/src/pages/Masters/MastersPage.jsx` *(modify)*
+- **Changes:**
+  1. **Imports — add:**
+     ```js
+     import {
+       usePartiesQuery,
+       useCreatePartyMutation,
+       useUpdatePartyMutation,
+       useDeletePartyMutation,
+     } from '@/hooks/queries/usePartyQuery';
+     ```
+  2. **Remove from `useApp()` destructure:** `parties`, `addParty`, `updateParty`, `deleteParty`.
+  3. **Add state:** `const [partySearchQuery, setPartySearchQuery] = useState('');`
+  4. **Add TanStack Query hooks:**
+     ```js
+     const {
+       data: apiParties = [],
+       isLoading: isPartiesLoading,
+       isError: isPartiesError,
+     } = usePartiesQuery({ search: partySearchQuery });
+
+     const createPartyMutation = useCreatePartyMutation();
+     const updatePartyMutation = useUpdatePartyMutation();
+     const deletePartyMutation = useDeletePartyMutation();
+     ```
+  5. **`handleSaveParty`:** Replace `addParty`/`updateParty` calls with:
+     ```js
+     const handleSaveParty = (formData) => {
+       setGlobalError('');
+       if (editingItem) {
+         updatePartyMutation.mutate({ id: editingItem.id, ...formData }, {
+           onSuccess: () => handleCloseModal(),
+           onError: (err) => {
+             const detail = err.response?.data?.detail || err.response?.data?.party_name?.[0] || err.response?.data?.mobile_number?.[0] || 'Failed to update party.';
+             setGlobalError(detail);
+           },
+         });
+       } else {
+         createPartyMutation.mutate(formData, {
+           onSuccess: () => handleCloseModal(),
+           onError: (err) => {
+             const detail = err.response?.data?.detail || err.response?.data?.party_name?.[0] || err.response?.data?.mobile_number?.[0] || 'Failed to create party.';
+             setGlobalError(detail);
+           },
+         });
+       }
+     };
+     ```
+  6. **`handleDelete` for parties:** Replace `deleteParty(id)` with:
+     ```js
+     deletePartyMutation.mutate(id, {
+       onError: (err) => {
+         const detail = err.response?.data?.detail || 'Failed to delete party.';
+         setGlobalError(detail);
+       },
+     });
+     ```
+  7. **Parties search bar:** In the header controls section, add alongside the products search bar:
+     ```jsx
+     {activeTab === 'parties' && (
+       <div className="relative flex-1 md:w-64">
+         <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+         <input
+           type="text"
+           placeholder="Search parties..."
+           className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+           value={partySearchQuery}
+           onChange={(e) => setPartySearchQuery(e.target.value)}
+         />
+       </div>
+     )}
+     ```
+  8. **Replace `parties` with `apiParties`** in all JSX table/list render sections for the parties tab. Add loading row:
+     ```jsx
+     {isPartiesLoading ? (
+       <tr><td colSpan="4" className="p-8 text-center text-slate-400">
+         <div className="flex items-center justify-center gap-2">
+           <Loader2 size={24} className="animate-spin text-indigo-600" />
+           <span>Fetching parties...</span>
+         </div>
+       </td></tr>
+     ) : isPartiesError ? (
+       <tr><td colSpan="4" className="p-8 text-center text-rose-500">Failed to load parties. Please refresh.</td></tr>
+     ) : apiParties.length === 0 ? (
+       <tr><td colSpan="4" className="p-8 text-center text-slate-500">No parties found. Click Add Party to create one.</td></tr>
+     ) : (
+       apiParties.map((party) => ( ... ))
+     )}
+     ```
+  9. **Field access in party rows:** Use `party.party_name` and `party.mobile_number` and `party.current_balance` (API shape) instead of `party.name`, `party.phone`, `party.balance`.
+  10. **`isPartyMutationLoading`:** `const isPartyMutationLoading = createPartyMutation.isPending || updatePartyMutation.isPending;`
+  11. **Pass props to `<PartyModal>`:**
+      ```jsx
+      <PartyModal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        editingItem={editingItem}
+        onSave={handleSaveParty}
+        isLoading={isPartyMutationLoading}
+        errorMessage={globalError}
+      />
+      ```
+  12. **Import `Loader2`** from `lucide-react` if not already present.
+
+#### [x] Task 4.3 — Update `frontend/src/context/AppContext.jsx`
+- **File:** `frontend/src/context/AppContext.jsx` *(modify)*
+- **Remove entirely:**
+  - `parties` state declaration and `localStorage.getItem('perfume_parties')` init
+  - `useEffect` that syncs `parties` to localStorage
+  - `addParty` function
+  - `updateParty` function
+  - `deleteParty` function
+  - `parties` from the `AppContext.Provider` value object
+- **Remove import** of `initialParties` from `'../constants/initialData'` if it is no longer referenced anywhere in the file.
+- **Keep intact:** `selectedLedgerParty`, `setSelectedLedgerParty`, all invoice/payment logic, `products` state, `billing` hook.
+- **Verify:** No `parties`-related references remain; `AppContext` still exports `selectedLedgerParty`, `setSelectedLedgerParty`.
+
+---
 
 ### Phase 5: Testing & Verification
-- [ ] Task 5.1: Execute `/test-feature 03-create-crud-for-party` to run all backend and frontend tests.
-- [ ] Task 5.2: Verify zero failing assertions and fix any discovered defects.
-- [ ] Task 5.3: Run `/code-review-feature 03-create-crud-for-party` for security and code quality audit.
+
+#### [x] Task 5.1 — Run backend tests
+- **Command:**
+  ```powershell
+  cd D:\Project\Perfume_Billing_System\backend
+  python manage.py test app.tests.PartyAPITestCase --verbosity=2
+  ```
+- **Expected:** All `PartyAPITestCase` tests pass (`OK`). Zero failures or errors.
+
+#### [x] Task 5.2 — Run all backend tests (regression check)
+- **Command:**
+  ```powershell
+  python manage.py test app --verbosity=2
+  ```
+- **Expected:** All existing `UserAuthenticationTests` and `ProductAPITestCase` tests continue to pass. New `PartyAPITestCase` passes.
+
+#### [x] Task 5.3 — Smoke test frontend
+- Start backend: `python manage.py runserver`
+- Start frontend: `npm run dev` (from `D:\Project\Perfume_Billing_System\frontend\`)
+- Manually verify:
+  - [ ] Parties tab loads data from API (not localStorage)
+  - [ ] Search bar filters parties
+  - [ ] Add Party → only Name + Mobile shown → saves to API → list refreshes
+  - [ ] Edit Party → all fields pre-populated with API data → updates → list refreshes
+  - [ ] Delete Party (no invoices) → `confirm` → deleted
+  - [ ] Error messages from API appear in modal banner
+  - [ ] `AppContext` no longer has party CRUD (no localStorage `perfume_parties` key written)
+
+#### [x] Task 5.4 — Commit implementation
+- **Command:**
+  ```powershell
+  cd D:\Project\Perfume_Billing_System
+  git add backend/app/models.py backend/app/admin.py backend/app/party_serializers.py backend/app/party_views.py backend/app/party_urls.py backend/backend/urls.py backend/app/tests.py
+  git add frontend/src/api/partyApi.js frontend/src/hooks/queries/usePartyQuery.js frontend/src/components/Modals/PartyModal.jsx frontend/src/pages/Masters/MastersPage.jsx frontend/src/context/AppContext.jsx
+  git commit -m "feat(03): implement full CRUD API and UI for Party"
+  ```
+
+#### [x] Task 5.5 — Update progress tracker
+- **File:** `.antigravity/memory/progress.md`
+- Update `Current Task` to `Phase 5 — Complete` once all tests pass.
+- Run `/test-feature 03-create-crud-for-party` then `/code-review-feature 03-create-crud-for-party`.

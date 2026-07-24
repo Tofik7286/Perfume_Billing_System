@@ -13,12 +13,13 @@ class ProductAdmin(admin.ModelAdmin):
 
 @admin.register(Party)
 class PartyAdmin(admin.ModelAdmin):
-    list_display = ('id', 'party_name', 'mobile_number', 'email_address', 'current_balance', 'created_at')
+    list_display = ('id', 'party_name', 'mobile_number', 'city', 'current_balance', 'created_by', 'created_at')
     list_filter = ('city', 'state', 'created_at')
     search_fields = ('party_name', 'mobile_number', 'email_address', 'gst_number', 'pan_number')
-    ordering = ('party_name',)
-    readonly_fields = ('created_at',)
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'current_balance')
     autocomplete_fields = ('created_by',)
+    list_select_related = ('created_by',)
 
 class InvoiceItemInline(admin.TabularInline):
     model = InvoiceItem
