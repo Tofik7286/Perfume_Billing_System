@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Plus, Edit, Trash2, Package, Users, Phone, Search, AlertCircle, Loader2 } from 'lucide-react';
-import { useApp } from '../../context/AppContext';
-import ProductModal from '../../components/Modals/ProductModal';
-import PartyModal from '../../components/Modals/PartyModal';
+import { useApp } from '@/context/AppContext';
+import ProductModal from '@/components/Modals/ProductModal';
+import PartyModal from '@/components/Modals/PartyModal';
 import {
   useProductsQuery,
   useCreateProductMutation,
   useUpdateProductMutation,
   useDeleteProductMutation
-} from '../../hooks/queries/useProductQuery';
+} from '@/hooks/queries/useProductQuery';
 
 const MastersPage = () => {
   const {
