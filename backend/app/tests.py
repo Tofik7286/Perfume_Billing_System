@@ -225,3 +225,23 @@ class ProductAPITestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['product_name'], 'Royal Oud 100ml')
+
+    def test_create_product_exceeding_max_length(self):
+        long_name = 'A' * 256
+        payload = {
+            'product_name': long_name,
+            'price': '500.00'
+        }
+        response = self.client.post(self.list_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('product_name', response.data)
+
+    def test_create_product_xss_safety(self):
+        xss_name = "<script>alert('xss')</script> Jasmine Perfume"
+        payload = {
+            'product_name': xss_name,
+            'price': '600.00'
+        }
+        response = self.client.post(self.list_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['product_name'], xss_name)

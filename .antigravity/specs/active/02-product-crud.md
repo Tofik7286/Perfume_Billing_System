@@ -120,35 +120,35 @@ This feature implements comprehensive CRUD (Create, Read, Update, Delete) operat
 ## 9. Concrete Test Scenarios & Edge Cases (Mandatory for /test-feature)
 
 ### A. Backend API Test Cases (Django / DRF)
-- [ ] **Happy Path (200/201/204):**
+- [x] **Happy Path (200/201/204):**
   - `GET /api/v1/products/`: Authenticated user fetches product list and gets HTTP 200 with complete product data.
   - `POST /api/v1/products/`: Authenticated user creates a product with valid payload (`product_name`, `price`). `created_by` is set automatically to `request.user` and returns HTTP 201.
   - `GET /api/v1/products/{id}/`: Authenticated user retrieves product details by ID and gets HTTP 200.
   - `PUT / PATCH /api/v1/products/{id}/`: Authenticated user updates product name or price and gets HTTP 200 with updated fields.
   - `DELETE /api/v1/products/{id}/`: Authenticated user deletes an unreferenced product and gets HTTP 204 No Content.
-- [ ] **Auth & Authorization (401):**
+- [x] **Auth & Authorization (401):**
   - Unauthenticated requests to list, create, update, or delete products return HTTP 401 Unauthorized.
-- [ ] **Input Validation (400):**
+- [x] **Input Validation (400):**
   - Creating or updating a product with an empty `product_name` returns HTTP 400 Bad Request.
   - Creating or updating a product with a negative price (e.g., `-100.00`) or non-numeric price returns HTTP 400 Bad Request.
   - Creating a product with missing mandatory fields returns HTTP 400 Bad Request.
-- [ ] **Domain & Boundary Edge Cases:**
+- [x] **Domain & Boundary Edge Cases:**
   - **Duplicate Product Name:** Creating a product with a name that already exists (case-insensitive check) raises a serializer validation error and returns HTTP 400 Bad Request.
   - **Invoice Reference Protection:** Attempting to delete a product that is linked to existing `InvoiceItem` records returns HTTP 400 Bad Request with a clear message suggesting deactivation.
   - **Name Boundary:** Product name exceeding 255 characters returns HTTP 400 Bad Request.
   - **Search Filtering:** `GET /api/v1/products/?search=Rose` returns only products matching "Rose".
 
 ### B. Frontend UI & State Test Cases (React)
-- [ ] **Form Validation:** Client-side validation in `ProductModal.jsx` prevents submission with empty name or invalid price rate before API call.
-- [ ] **API Failure Recovery:** Error messages returned by backend (e.g., duplicate product name or negative price) render as visible alert banners inside `ProductModal.jsx` or as error alerts in `MastersPage.jsx`.
-- [ ] **Loading & Mutation State:** Save/Update button in `ProductModal.jsx` displays loading state and disables submission during active mutations.
-- [ ] **Query Cache Invalidation:** Creating, updating, or deleting a product invalidates the TanStack Query `['products']` cache key and updates the UI instantly without page reload.
+- [x] **Form Validation:** Client-side validation in `ProductModal.jsx` prevents submission with empty name or invalid price rate before API call.
+- [x] **API Failure Recovery:** Error messages returned by backend (e.g., duplicate product name or negative price) render as visible alert banners inside `ProductModal.jsx` or as error alerts in `MastersPage.jsx`.
+- [x] **Loading & Mutation State:** Save/Update button in `ProductModal.jsx` displays loading state and disables submission during active mutations.
+- [x] **Query Cache Invalidation:** Creating, updating, or deleting a product invalidates the TanStack Query `['products']` cache key and updates the UI instantly without page reload.
 
 ## 10. Definition of Done
-- [ ] Backend API endpoints pass all scenarios listed in Section 9A.
-- [ ] Frontend UI passes all scenarios listed in Section 9B.
-- [ ] Database migrations execute cleanly.
-- [ ] `/test-feature 02-product-crud` runs and passes without errors.
+- [x] Backend API endpoints pass all scenarios listed in Section 9A.
+- [x] Frontend UI passes all scenarios listed in Section 9B.
+- [x] Database migrations execute cleanly.
+- [x] `/test-feature 02-product-crud` runs and passes without errors.
 - [ ] Security and quality audit passed via `/code-review-feature`.
 
 ---
@@ -180,6 +180,6 @@ This feature implements comprehensive CRUD (Create, Read, Update, Delete) operat
 - [x] Task 4.2: Update `frontend/src/pages/Masters/MastersPage.jsx` (Products tab) to replace mock state with real API data using `useProductsQuery`, adding search filtering, loading Skeletons, empty state handling, and edit/delete actions connected to query mutations.
 
 ### Phase 5: Rigorous Automated Testing & Verification
-- [ ] Task 5.1: Execute `/test-feature 02-product-crud` to run all backend and frontend edge case tests.
-- [ ] Task 5.2: Verify zero failing assertions, clean execution, and fix any auto-discovered defects.
+- [x] Task 5.1: Execute `/test-feature 02-product-crud` to run all backend and frontend edge case tests.
+- [x] Task 5.2: Verify zero failing assertions, clean execution, and fix any auto-discovered defects.
 - [ ] Task 5.3: Run `/code-review-feature 02-product-crud` to perform security and code quality audits.
