@@ -172,3 +172,5 @@ docker-compose.override.yml
 *.seed
 
 .antigravity/
+.agents/
+GEMINI.md
