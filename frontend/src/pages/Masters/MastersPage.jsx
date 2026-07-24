@@ -1,50 +1,88 @@
 import React, { useState } from 'react';
-import { Plus, Edit, Trash2, Package, Users, Phone } from 'lucide-react';
-import { useApp } from '../../context/AppContext';
-import ProductModal from '../../components/Modals/ProductModal';
-import PartyModal from '../../components/Modals/PartyModal';
+import { Plus, Edit, Trash2, Package, Users, Phone, Search, AlertCircle, Loader2 } from 'lucide-react';
+import { useApp } from '@/context/AppContext';
+import ProductModal from '@/components/Modals/ProductModal';
+import PartyModal from '@/components/Modals/PartyModal';
+import {
+  useProductsQuery,
+  useCreateProductMutation,
+  useUpdateProductMutation,
+  useDeleteProductMutation
+} from '@/hooks/queries/useProductQuery';
 
 const MastersPage = () => {
   const {
-    products,
     parties,
     activeTab,
     setActiveTab,
     setSelectedLedgerParty,
-    addProduct,
-    updateProduct,
-    deleteProduct,
     addParty,
     updateParty,
     deleteParty
   } = useApp();
 
+  const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [globalError, setGlobalError] = useState('');
+
+  // TanStack Query Hooks for Products
+  const {
+    data: apiProducts = [],
+    isLoading: isProductsLoading,
+    isError: isProductsError,
+    error: productsError
+  } = useProductsQuery({ search: searchQuery });
+
+  const createProductMutation = useCreateProductMutation();
+  const updateProductMutation = useUpdateProductMutation();
+  const deleteProductMutation = useDeleteProductMutation();
 
   const handleOpenAddModal = () => {
     setEditingItem(null);
+    setGlobalError('');
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (e, item) => {
     e.stopPropagation();
     setEditingItem(item);
+    setGlobalError('');
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingItem(null);
+    setGlobalError('');
   };
 
   const handleSaveProduct = (formData) => {
+    setGlobalError('');
     if (editingItem) {
-      updateProduct(editingItem.id, formData);
+      updateProductMutation.mutate(
+        { id: editingItem.id, ...formData },
+        {
+          onSuccess: () => {
+            handleCloseModal();
+          },
+          onError: (err) => {
+            const detail = err.response?.data?.detail || err.response?.data?.product_name?.[0] || err.response?.data?.price?.[0] || 'Failed to update product.';
+            setGlobalError(detail);
+          }
+        }
+      );
     } else {
-      addProduct(formData);
+      createProductMutation.mutate(formData, {
+        onSuccess: () => {
+          handleCloseModal();
+        },
+        onError: (err) => {
+          const detail = err.response?.data?.detail || err.response?.data?.product_name?.[0] || err.response?.data?.price?.[0] || 'Failed to create product.';
+          setGlobalError(detail);
+        }
+      });
     }
-    handleCloseModal();
   };
 
   const handleSaveParty = (formData) => {
@@ -58,14 +96,22 @@ const MastersPage = () => {
 
   const handleDelete = (e, type, id) => {
     e.stopPropagation();
+    setGlobalError('');
     if (window.confirm(`Are you sure you want to delete this ${type}?`)) {
       if (type === 'product') {
-        deleteProduct(id);
+        deleteProductMutation.mutate(id, {
+          onError: (err) => {
+            const detail = err.response?.data?.detail || 'Failed to delete product.';
+            setGlobalError(detail);
+          }
+        });
       } else {
         deleteParty(id);
       }
     }
   };
+
+  const isMutationLoading = createProductMutation.isPending || updateProductMutation.isPending;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
@@ -76,58 +122,99 @@ const MastersPage = () => {
           <p className="text-slate-500 mt-1 hidden md:block">Manage your products and parties inventory.</p>
         </div>
 
-        {/* Tab Selector */}
-        <div className="bg-slate-200 p-1 rounded-xl flex self-start md:self-auto w-full md:w-auto">
+        {/* Search & Actions Bar */}
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          {activeTab === 'products' && (
+            <div className="relative flex-1 md:w-64">
+              <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search products..."
+                className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          )}
+
+          {/* Tab Selector */}
+          <div className="bg-slate-200 p-1 rounded-xl flex shrink-0">
+            <button
+              onClick={() => { setActiveTab('products'); setGlobalError(''); }}
+              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'products' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Products
+            </button>
+            <button
+              onClick={() => { setActiveTab('parties'); setGlobalError(''); }}
+              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'parties' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Parties
+            </button>
+          </div>
+
+          {/* Desktop Add Button */}
           <button
-            onClick={() => setActiveTab('products')}
-            className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'products' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            onClick={handleOpenAddModal}
+            className="hidden md:flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl font-medium transition-colors shadow-sm shrink-0"
           >
-            Products
-          </button>
-          <button
-            onClick={() => setActiveTab('parties')}
-            className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'parties' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-          >
-            Parties
+            <Plus size={20} />
+            <span>Add {activeTab === 'products' ? 'Product' : 'Party'}</span>
           </button>
         </div>
-
-        {/* Desktop Add Button */}
-        <button
-          onClick={handleOpenAddModal}
-          className="hidden md:flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-medium transition-colors shadow-sm"
-        >
-          <Plus size={20} />
-          <span>Add {activeTab === 'products' ? 'Product' : 'Party'}</span>
-        </button>
       </div>
+
+      {/* Global Error Banner */}
+      {globalError && (
+        <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-700 shadow-sm">
+          <AlertCircle size={20} className="shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm font-medium">{globalError}</div>
+          <button onClick={() => setGlobalError('')} className="text-rose-400 hover:text-rose-700 text-sm font-bold">Dismiss</button>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         {/* Mobile View (Lists) */}
         <div className="md:hidden flex flex-col divide-y divide-slate-100">
-          {activeTab === 'products' && products.map((product) => (
-            <div key={product.id} className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-                  <Package size={24} />
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-800">{product.name}</h4>
-                  <div className="flex items-center gap-3 mt-1 text-sm">
-                    <span className="text-slate-500">Rate: <span className="font-medium text-slate-700">{product.rate}</span></span>
+          {activeTab === 'products' && (
+            isProductsLoading ? (
+              <div className="p-8 flex justify-center items-center text-slate-400 gap-2">
+                <Loader2 size={24} className="animate-spin text-indigo-600" />
+                <span>Loading products...</span>
+              </div>
+            ) : apiProducts.length === 0 ? (
+              <div className="p-8 text-center text-slate-500">
+                No products found. Click Add Product to create one.
+              </div>
+            ) : (
+              apiProducts.map((product) => (
+                <div key={product.id} className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                      <Package size={24} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800">{product.product_name || product.name}</h4>
+                      <div className="flex items-center gap-3 mt-1 text-sm">
+                        <span className="text-slate-500">Rate: <span className="font-medium text-slate-700">₹{parseFloat(product.price || 0).toFixed(2)}</span></span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${product.is_active !== false ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {product.is_active !== false ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={(e) => handleOpenEditModal(e, product)} className="text-indigo-400 hover:text-indigo-600 p-2 bg-indigo-50 rounded-lg transition-colors">
+                      <Edit size={18} />
+                    </button>
+                    <button onClick={(e) => handleDelete(e, 'product', product.id)} className="text-rose-400 hover:text-rose-600 p-2 bg-rose-50 rounded-lg transition-colors">
+                      <Trash2 size={18} />
+                    </button>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <button onClick={(e) => handleOpenEditModal(e, product)} className="text-indigo-400 hover:text-indigo-600 p-2 bg-indigo-50 rounded-lg transition-colors">
-                  <Edit size={18} />
-                </button>
-                <button onClick={(e) => handleDelete(e, 'product', product.id)} className="text-rose-400 hover:text-rose-600 p-2 bg-rose-50 rounded-lg transition-colors">
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            </div>
-          ))}
+              ))
+            )
+          )}
 
           {activeTab === 'parties' && parties.map((party) => (
             <div
@@ -170,6 +257,7 @@ const MastersPage = () => {
                   <>
                     <th className="p-5 font-medium">Product Name</th>
                     <th className="p-5 font-medium">Rate</th>
+                    <th className="p-5 font-medium">Status</th>
                     <th className="p-5 font-medium text-right">Actions</th>
                   </>
                 ) : (
@@ -183,29 +271,59 @@ const MastersPage = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {activeTab === 'products' && products.map((product) => (
-                <tr key={product.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                        <Package size={20} />
+              {activeTab === 'products' && (
+                isProductsLoading ? (
+                  <tr>
+                    <td colSpan="4" className="p-8 text-center text-slate-400">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 size={24} className="animate-spin text-indigo-600" />
+                        <span>Fetching product catalog...</span>
                       </div>
-                      <span className="font-medium text-slate-800">{product.name}</span>
-                    </div>
-                  </td>
-                  <td className="p-5 text-slate-700 font-medium">{product.rate}</td>
-                  <td className="p-5 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button onClick={(e) => handleOpenEditModal(e, product)} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-lg transition-colors">
-                        <Edit size={18} />
-                      </button>
-                      <button onClick={(e) => handleDelete(e, 'product', product.id)} className="text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 p-2 rounded-lg transition-colors">
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                ) : isProductsError ? (
+                  <tr>
+                    <td colSpan="4" className="p-8 text-center text-rose-500">
+                      Failed to load products. Please refresh or log in again.
+                    </td>
+                  </tr>
+                ) : apiProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" className="p-8 text-center text-slate-500">
+                      No products found. Click Add Product to create one.
+                    </td>
+                  </tr>
+                ) : (
+                  apiProducts.map((product) => (
+                    <tr key={product.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                            <Package size={20} />
+                          </div>
+                          <span className="font-medium text-slate-800">{product.product_name || product.name}</span>
+                        </div>
+                      </td>
+                      <td className="p-5 text-slate-700 font-medium">₹{parseFloat(product.price || 0).toFixed(2)}</td>
+                      <td className="p-5">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${product.is_active !== false ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {product.is_active !== false ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="p-5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={(e) => handleOpenEditModal(e, product)} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-lg transition-colors">
+                            <Edit size={18} />
+                          </button>
+                          <button onClick={(e) => handleDelete(e, 'product', product.id)} className="text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 p-2 rounded-lg transition-colors">
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )
+              )}
 
               {activeTab === 'parties' && parties.map((party) => (
                 <tr
@@ -261,6 +379,8 @@ const MastersPage = () => {
           onClose={handleCloseModal}
           editingItem={editingItem}
           onSave={handleSaveProduct}
+          isLoading={isMutationLoading}
+          errorMessage={globalError}
         />
       ) : (
         <PartyModal

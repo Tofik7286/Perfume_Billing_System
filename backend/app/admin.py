@@ -9,6 +9,7 @@ class ProductAdmin(admin.ModelAdmin):
     ordering = ('-created_at',)
     readonly_fields = ('created_at',)
     autocomplete_fields = ('created_by',)
+    list_select_related = ('created_by',)
 
 @admin.register(Party)
 class PartyAdmin(admin.ModelAdmin):

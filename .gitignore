@@ -170,3 +170,5 @@ docker-compose.override.yml
 *.tmp
 *.pid
 *.seed
+
+.antigravity/
