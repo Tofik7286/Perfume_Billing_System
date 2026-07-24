@@ -41,6 +41,15 @@ class Party(models.Model):
     def __str__(self):
         return self.party_name
 
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['party_name']),
+            models.Index(fields=['mobile_number']),
+        ]
+        verbose_name = 'Party'
+        verbose_name_plural = 'Parties'
+
 class Invoice(models.Model):
     class StatusChoices(models.TextChoices):
         PAID = 'Paid', 'Paid'

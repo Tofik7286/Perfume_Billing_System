@@ -245,3 +245,171 @@ class ProductAPITestCase(APITestCase):
         response = self.client.post(self.list_url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['product_name'], xss_name)
+
+class PartyAPITestCase(APITestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='partytestuser',
+            password='testpassword123'
+        )
+        self.client.force_authenticate(user=self.user)
+        
+        self.party1 = Party.objects.create(
+            party_name='A.K. Traders',
+            mobile_number='9876543210',
+            email_address='ak@traders.com',
+            city='Ahmedabad',
+            created_by=self.user
+        )
+        self.party2 = Party.objects.create(
+            party_name='V.J. Distributors',
+            mobile_number='9876543211',
+            email_address='vj@distributors.com',
+            city='Mumbai',
+            created_by=self.user
+        )
+        self.list_url = '/api/v1/parties/'
+        self.detail_url = f'/api/v1/parties/{self.party1.id}/'
+
+    def test_list_parties_authenticated(self):
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+    def test_list_parties_unauthenticated(self):
+        self.client.logout()
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_party_success(self):
+        payload = {
+            'party_name': 'R.K. Agency',
+            'mobile_number': '9876543212',
+            'email_address': 'rk@agency.com',
+            'city': 'Surat'
+        }
+        response = self.client.post(self.list_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['party_name'], 'R.K. Agency')
+        self.assertEqual(response.data['created_by_username'], 'partytestuser')
+
+    def test_create_party_unauthenticated(self):
+        self.client.logout()
+        payload = {
+            'party_name': 'R.K. Agency',
+            'mobile_number': '9876543212'
+        }
+        response = self.client.post(self.list_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_party_empty_party_name(self):
+        payload = {
+            'party_name': '   ',
+            'mobile_number': '9876543212'
+        }
+        response = self.client.post(self.list_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('party_name', response.data)
+
+    def test_create_party_empty_mobile_number(self):
+        payload = {
+            'party_name': 'R.K. Agency',
+            'mobile_number': '   '
+        }
+        response = self.client.post(self.list_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('mobile_number', response.data)
+
+    def test_create_party_missing_required_fields(self):
+        response = self.client.post(self.list_url, {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('party_name', response.data)
+        self.assertIn('mobile_number', response.data)
+
+    def test_create_party_duplicate_name_case_insensitive(self):
+        payload = {
+            'party_name': 'a.k. traders',
+            'mobile_number': '9876543210'
+        }
+        response = self.client.post(self.list_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('party_name', response.data)
+
+    def test_update_party_same_name_no_duplicate_error(self):
+        payload = {
+            'party_name': 'A.K. Traders',
+            'mobile_number': '9876543210'
+        }
+        response = self.client.put(self.detail_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_retrieve_party_success(self):
+        response = self.client.get(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['party_name'], 'A.K. Traders')
+
+    def test_retrieve_party_not_found(self):
+        response = self.client.get('/api/v1/parties/99999/')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_party_success(self):
+        payload = {
+            'party_name': 'A.K. Traders New',
+            'mobile_number': '9876543210',
+            'city': 'Vadodara',
+            'gst_number': '24AAAAC1234A1Z5'
+        }
+        response = self.client.put(self.detail_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['party_name'], 'A.K. Traders New')
+        self.assertEqual(response.data['city'], 'Vadodara')
+        self.assertEqual(response.data['gst_number'], '24AAAAC1234A1Z5')
+
+    def test_patch_party_success(self):
+        payload = {
+            'mobile_number': '9999999999'
+        }
+        response = self.client.patch(self.detail_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['mobile_number'], '9999999999')
+
+    def test_delete_party_no_invoices_success(self):
+        response = self.client.delete(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Party.objects.filter(id=self.party1.id).exists())
+
+    def test_delete_party_with_invoices_blocked(self):
+        invoice = Invoice.objects.create(
+            invoice_number='INV-PART-001',
+            party=self.party1,
+            invoice_date='2026-07-24',
+            grand_total=Decimal('100.00')
+        )
+        response = self.client.delete(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Cannot delete party', response.data['detail'])
+        self.assertTrue(Party.objects.filter(id=self.party1.id).exists())
+
+    def test_search_by_party_name(self):
+        response = self.client.get(f'{self.list_url}?search=Distributors')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['party_name'], 'V.J. Distributors')
+
+    def test_search_by_mobile_number(self):
+        response = self.client.get(f'{self.list_url}?search=9876543210')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['party_name'], 'A.K. Traders')
+
+    def test_create_party_name_exceeds_max_length(self):
+        long_name = 'P' * 256
+        payload = {
+            'party_name': long_name,
+            'mobile_number': '9876543210'
+        }
+        response = self.client.post(self.list_url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('party_name', response.data)
+

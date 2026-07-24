@@ -9,19 +9,22 @@ import {
   useUpdateProductMutation,
   useDeleteProductMutation
 } from '@/hooks/queries/useProductQuery';
+import {
+  usePartiesQuery,
+  useCreatePartyMutation,
+  useUpdatePartyMutation,
+  useDeletePartyMutation
+} from '@/hooks/queries/usePartyQuery';
 
 const MastersPage = () => {
   const {
-    parties,
     activeTab,
     setActiveTab,
-    setSelectedLedgerParty,
-    addParty,
-    updateParty,
-    deleteParty
+    setSelectedLedgerParty
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [partySearchQuery, setPartySearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [globalError, setGlobalError] = useState('');
@@ -37,6 +40,17 @@ const MastersPage = () => {
   const createProductMutation = useCreateProductMutation();
   const updateProductMutation = useUpdateProductMutation();
   const deleteProductMutation = useDeleteProductMutation();
+
+  // TanStack Query Hooks for Parties
+  const {
+    data: apiParties = [],
+    isLoading: isPartiesLoading,
+    isError: isPartiesError
+  } = usePartiesQuery({ search: partySearchQuery });
+
+  const createPartyMutation = useCreatePartyMutation();
+  const updatePartyMutation = useUpdatePartyMutation();
+  const deletePartyMutation = useDeletePartyMutation();
 
   const handleOpenAddModal = () => {
     setEditingItem(null);
@@ -86,12 +100,31 @@ const MastersPage = () => {
   };
 
   const handleSaveParty = (formData) => {
+    setGlobalError('');
     if (editingItem) {
-      updateParty(editingItem.id, formData);
+      updatePartyMutation.mutate(
+        { id: editingItem.id, ...formData },
+        {
+          onSuccess: () => {
+            handleCloseModal();
+          },
+          onError: (err) => {
+            const detail = err.response?.data?.detail || err.response?.data?.party_name?.[0] || err.response?.data?.mobile_number?.[0] || 'Failed to update party.';
+            setGlobalError(detail);
+          }
+        }
+      );
     } else {
-      addParty(formData);
+      createPartyMutation.mutate(formData, {
+        onSuccess: () => {
+          handleCloseModal();
+        },
+        onError: (err) => {
+          const detail = err.response?.data?.detail || err.response?.data?.party_name?.[0] || err.response?.data?.mobile_number?.[0] || 'Failed to create party.';
+          setGlobalError(detail);
+        }
+      });
     }
-    handleCloseModal();
   };
 
   const handleDelete = (e, type, id) => {
@@ -106,12 +139,18 @@ const MastersPage = () => {
           }
         });
       } else {
-        deleteParty(id);
+        deletePartyMutation.mutate(id, {
+          onError: (err) => {
+            const detail = err.response?.data?.detail || 'Failed to delete party.';
+            setGlobalError(detail);
+          }
+        });
       }
     }
   };
 
   const isMutationLoading = createProductMutation.isPending || updateProductMutation.isPending;
+  const isPartyMutationLoading = createPartyMutation.isPending || updatePartyMutation.isPending;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
@@ -133,6 +172,19 @@ const MastersPage = () => {
                 className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          )}
+
+          {activeTab === 'parties' && (
+            <div className="relative flex-1 md:w-64">
+              <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search parties..."
+                className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+                value={partySearchQuery}
+                onChange={(e) => setPartySearchQuery(e.target.value)}
               />
             </div>
           )}
@@ -216,36 +268,62 @@ const MastersPage = () => {
             )
           )}
 
-          {activeTab === 'parties' && parties.map((party) => (
-            <div
-              key={party.id}
-              className="p-4 flex items-center justify-between active:bg-slate-50 md:hover:bg-slate-50 cursor-pointer transition-colors"
-              onClick={() => { setSelectedLedgerParty(party); setActiveTab('party-ledger'); }}
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-                  <Users size={24} />
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-800">{party.name}</h4>
-                  <div className="flex items-center gap-3 mt-1 text-sm">
-                    <span className="flex items-center gap-1 text-slate-500"><Phone size={14} /> {party.phone}</span>
-                  </div>
-                  <div className="mt-1 text-sm">
-                    <span className="text-slate-500">Balance: <span className={`font-medium ${party.balance === '₹0' ? 'text-slate-600' : 'text-rose-600'}`}>{party.balance}</span></span>
-                  </div>
-                </div>
+          {activeTab === 'parties' && (
+            isPartiesLoading ? (
+              <div className="p-8 flex justify-center items-center text-slate-400 gap-2">
+                <Loader2 size={24} className="animate-spin text-indigo-600" />
+                <span>Loading parties...</span>
               </div>
-              <div className="flex items-center gap-1">
-                <button onClick={(e) => handleOpenEditModal(e, party)} className="text-indigo-400 hover:text-indigo-600 p-2 bg-indigo-50 rounded-lg transition-colors">
-                  <Edit size={18} />
-                </button>
-                <button onClick={(e) => handleDelete(e, 'party', party.id)} className="text-rose-400 hover:text-rose-600 p-2 bg-rose-50 rounded-lg transition-colors">
-                  <Trash2 size={18} />
-                </button>
+            ) : isPartiesError ? (
+              <div className="p-8 text-center text-rose-500">
+                Failed to load parties. Please refresh.
               </div>
-            </div>
-          ))}
+            ) : apiParties.length === 0 ? (
+              <div className="p-8 text-center text-slate-500">
+                No parties found. Click Add Party to create one.
+              </div>
+            ) : (
+              apiParties.map((party) => (
+                <div
+                  key={party.id}
+                  className="p-4 flex items-center justify-between active:bg-slate-50 md:hover:bg-slate-50 cursor-pointer transition-colors"
+                  onClick={() => {
+                    setSelectedLedgerParty({
+                      ...party,
+                      id: party.id,
+                      name: party.party_name,
+                      phone: party.mobile_number,
+                      balance: `₹${parseFloat(party.current_balance || 0).toFixed(2)}`
+                    });
+                    setActiveTab('party-ledger');
+                  }}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                      <Users size={24} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800">{party.party_name}</h4>
+                      <div className="flex items-center gap-3 mt-1 text-sm">
+                        <span className="flex items-center gap-1 text-slate-500"><Phone size={14} /> {party.mobile_number}</span>
+                      </div>
+                      <div className="mt-1 text-sm">
+                        <span className="text-slate-500">Balance: <span className={`font-medium ${parseFloat(party.current_balance || 0) === 0 ? 'text-slate-600' : 'text-rose-600'}`}>₹{parseFloat(party.current_balance || 0).toFixed(2)}</span></span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={(e) => handleOpenEditModal(e, party)} className="text-indigo-400 hover:text-indigo-600 p-2 bg-indigo-50 rounded-lg transition-colors">
+                      <Edit size={18} />
+                    </button>
+                    <button onClick={(e) => handleDelete(e, 'party', party.id)} className="text-rose-400 hover:text-rose-600 p-2 bg-rose-50 rounded-lg transition-colors">
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )
+          )}
         </div>
 
         {/* Desktop View (Tables) */}
@@ -325,40 +403,74 @@ const MastersPage = () => {
                 )
               )}
 
-              {activeTab === 'parties' && parties.map((party) => (
-                <tr
-                  key={party.id}
-                  className="hover:bg-slate-50 transition-colors cursor-pointer"
-                  onClick={() => { setSelectedLedgerParty(party); setActiveTab('party-ledger'); }}
-                >
-                  <td className="p-5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
-                        <Users size={20} />
+              {activeTab === 'parties' && (
+                isPartiesLoading ? (
+                  <tr>
+                    <td colSpan="4" className="p-8 text-center text-slate-400">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 size={24} className="animate-spin text-indigo-600" />
+                        <span>Fetching parties...</span>
                       </div>
-                      <span className="font-medium text-slate-800">{party.name}</span>
-                    </div>
-                  </td>
-                  <td className="p-5 text-slate-600 font-medium flex items-center gap-2">
-                    <Phone size={16} className="text-slate-400" /> {party.phone}
-                  </td>
-                  <td className="p-5">
-                    <span className={`font-semibold ${party.balance === '₹0' ? 'text-slate-600' : 'text-rose-600'}`}>
-                      {party.balance}
-                    </span>
-                  </td>
-                  <td className="p-5 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button onClick={(e) => handleOpenEditModal(e, party)} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-lg transition-colors">
-                        <Edit size={18} />
-                      </button>
-                      <button onClick={(e) => handleDelete(e, 'party', party.id)} className="text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 p-2 rounded-lg transition-colors">
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                ) : isPartiesError ? (
+                  <tr>
+                    <td colSpan="4" className="p-8 text-center text-rose-500">
+                      Failed to load parties. Please refresh or log in again.
+                    </td>
+                  </tr>
+                ) : apiParties.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" className="p-8 text-center text-slate-500">
+                      No parties found. Click Add Party to create one.
+                    </td>
+                  </tr>
+                ) : (
+                  apiParties.map((party) => (
+                    <tr
+                      key={party.id}
+                      className="hover:bg-slate-50 transition-colors cursor-pointer"
+                      onClick={() => {
+                        setSelectedLedgerParty({
+                          ...party,
+                          id: party.id,
+                          name: party.party_name,
+                          phone: party.mobile_number,
+                          balance: `₹${parseFloat(party.current_balance || 0).toFixed(2)}`
+                        });
+                        setActiveTab('party-ledger');
+                      }}
+                    >
+                      <td className="p-5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                            <Users size={20} />
+                          </div>
+                          <span className="font-medium text-slate-800">{party.party_name}</span>
+                        </div>
+                      </td>
+                      <td className="p-5 text-slate-600 font-medium flex items-center gap-2">
+                        <Phone size={16} className="text-slate-400" /> {party.mobile_number}
+                      </td>
+                      <td className="p-5">
+                        <span className={`font-semibold ${parseFloat(party.current_balance || 0) === 0 ? 'text-slate-600' : 'text-rose-600'}`}>
+                          ₹{parseFloat(party.current_balance || 0).toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="p-5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={(e) => handleOpenEditModal(e, party)} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-lg transition-colors">
+                            <Edit size={18} />
+                          </button>
+                          <button onClick={(e) => handleDelete(e, 'party', party.id)} className="text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 p-2 rounded-lg transition-colors">
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )
+              )}
             </tbody>
           </table>
         </div>
@@ -388,6 +500,8 @@ const MastersPage = () => {
           onClose={handleCloseModal}
           editingItem={editingItem}
           onSave={handleSaveParty}
+          isLoading={isPartyMutationLoading}
+          errorMessage={globalError}
         />
       )}
     </div>

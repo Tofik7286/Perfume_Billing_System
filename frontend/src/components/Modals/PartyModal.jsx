@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 
-const PartyModal = ({ isOpen, onClose, editingItem, onSave }) => {
+const PartyModal = ({ isOpen, onClose, editingItem, onSave, isLoading = false, errorMessage = '' }) => {
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -22,21 +22,20 @@ const PartyModal = ({ isOpen, onClose, editingItem, onSave }) => {
   useEffect(() => {
     if (editingItem) {
       setFormData({
-        name: '',
-        phone: '',
-        alternatePhone: '',
-        email: '',
-        gstNumber: '',
-        panNumber: '',
-        addressLine1: '',
-        addressLine2: '',
-        landmark: '',
-        city: '',
-        state: '',
-        pincode: '',
-        country: 'India',
-        balance: '₹0',
-        ...editingItem
+        name: editingItem.party_name || editingItem.name || '',
+        phone: editingItem.mobile_number || editingItem.phone || '',
+        alternatePhone: editingItem.alternate_mobile || editingItem.alternatePhone || '',
+        email: editingItem.email_address || editingItem.email || '',
+        gstNumber: editingItem.gst_number || editingItem.gstNumber || '',
+        panNumber: editingItem.pan_number || editingItem.panNumber || '',
+        addressLine1: editingItem.address_line_1 || editingItem.addressLine1 || '',
+        addressLine2: editingItem.address_line_2 || editingItem.addressLine2 || '',
+        landmark: editingItem.landmark || '',
+        city: editingItem.city || '',
+        state: editingItem.state || '',
+        pincode: editingItem.pincode || '',
+        country: editingItem.country || 'India',
+        balance: editingItem.current_balance ?? editingItem.balance ?? '₹0'
       });
     } else {
       setFormData({
@@ -93,6 +92,11 @@ const PartyModal = ({ isOpen, onClose, editingItem, onSave }) => {
         </div>
 
         <div className="p-6 overflow-y-auto">
+          {errorMessage && (
+            <div className="mb-5 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium">
+              {errorMessage}
+            </div>
+          )}
           <form className="space-y-5" onSubmit={handleSubmit}>
             {!editingItem ? (
               // Simplified Add Party Flow (Only Name and Mobile)
@@ -281,9 +285,11 @@ const PartyModal = ({ isOpen, onClose, editingItem, onSave }) => {
               </button>
               <button
                 type="submit"
-                className="flex-1 px-5 py-3.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 shadow-sm transition-colors"
+                disabled={isLoading}
+                className="flex-1 px-5 py-3.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 shadow-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                {editingItem ? 'Update' : 'Save'} Party
+                {isLoading && <Loader2 size={18} className="animate-spin" />}
+                <span>{editingItem ? 'Update' : 'Save'} Party</span>
               </button>
             </div>
           </form>
