@@ -8,6 +8,15 @@ class Product(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['product_name']),
+            models.Index(fields=['is_active']),
+        ]
+        verbose_name = 'Product'
+        verbose_name_plural = 'Products'
+
     def __str__(self):
         return self.product_name
 
